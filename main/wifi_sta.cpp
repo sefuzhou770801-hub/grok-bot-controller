@@ -224,7 +224,13 @@ void wifi_start(const config::DeviceConfig& cfg)
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &sta_cfg));
     ESP_ERROR_CHECK(esp_wifi_start());
-    ESP_LOGI(kTag, "connecting to SSID: %s", cfg.wifi_ssid.c_str());
+    // IDF defaults to WIFI_PS_MIN_MODEM: the radio naps between DTIM beacons
+    // and downlink frames queue at the AP for 20-90 ms at a time (measured
+    // p50=20ms / p99=72ms vs 3ms awake). That jitter eats straight into the
+    // TTS jitter buffer on a device that streams 60 ms audio frames. Desk
+    // robot on USB power — keep the radio awake.
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+    ESP_LOGI(kTag, "connecting to SSID: %s (power-save off)", cfg.wifi_ssid.c_str());
 }
 
 bool wifi_is_connected()
