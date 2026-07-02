@@ -17,6 +17,7 @@
 #include "avatar/avatar.hpp"
 #include "avatar/canvas.hpp"
 #include "avatar/canvas_m5gfx.hpp"
+#include "clawd_face/renderer.hpp"
 #include "device_ui.hpp"
 #include "face_config.hpp"
 
@@ -111,6 +112,9 @@ void render_task_entry(void* arg)
     RichCanvas& canvas = *cv;
 
     avatar::Avatar avatar;
+    clawd_face::Renderer clawd_face;
+    const bool clawd_ready = clawd_face.begin(canvas_w, canvas_h);
+    bool avatar_vm_selected = !clawd_ready;
 
     int last_expression = -1;
     std::uint32_t last_balloon_version = 0;
@@ -156,6 +160,7 @@ void render_task_entry(void* arg)
             // strategy clears the whole panel (UI content) before redrawing.
             ui_was_active = false;
             avatar.request_full_repaint();
+            clawd_face.request_full_repaint();
             last_expression = -1; // force a fresh expression apply
         }
 
@@ -175,18 +180,26 @@ void render_task_entry(void* arg)
             auto bc = args.state->snapshot_face_bytecode();
             if (bc.empty()) {
                 avatar.reset_face_bytecode();
+                avatar_vm_selected = !clawd_ready;
+                clawd_face.request_full_repaint();
             } else {
                 avatar.load_face_bytecode(bc);
+                avatar_vm_selected = true;
+                avatar.request_full_repaint();
             }
             last_face_bytecode_version = face_bc_version;
         }
 
         const int expr = args.state->expression.load(std::memory_order_relaxed);
         if (expr != last_expression) {
-            avatar.set_expression(static_cast<avatar::Expression>(expr));
+            const auto expression = static_cast<avatar::Expression>(expr);
+            avatar.set_expression(expression);
+            clawd_face.set_expression(expression);
             last_expression = expr;
         }
-        avatar.set_mouth_open(args.state->mouth_open.load(std::memory_order_relaxed));
+        const float mouth_open = args.state->mouth_open.load(std::memory_order_relaxed);
+        avatar.set_mouth_open(mouth_open);
+        clawd_face.set_mouth_open(mouth_open);
         avatar.set_gaze(args.state->gaze_target_h.load(std::memory_order_relaxed),
                         args.state->gaze_target_v.load(std::memory_order_relaxed));
 
@@ -196,17 +209,27 @@ void render_task_entry(void* arg)
                 std::uint32_t hold_ms = 0;
                 args.state->snapshot_balloon(balloon_scratch, hold_ms);
                 avatar.set_balloon_text(balloon_scratch, hold_ms);
+                clawd_face.set_balloon_text(balloon_scratch, hold_ms);
                 balloon_pending = true;
             } else {
                 avatar.clear_balloon();
+                clawd_face.clear_balloon();
                 balloon_pending = false;
             }
             last_balloon_version = balloon_version;
         }
 
-        // avatar.tick() opens the frame (begin_frame) and draws the face;
-        // overlays compose into the same frame; end_frame() presents.
-        avatar.tick(now_ms, canvas);
+        // Clawd RLE is the default face. Avatar VM remains available through
+        // the existing face-bytecode override path; clearing the override
+        // returns to Clawd when the assets partition is usable.
+        const bool render_clawd = clawd_ready && !avatar_vm_selected;
+        if (render_clawd) {
+            clawd_face.render(now_ms, canvas);
+        } else {
+            // avatar.tick() opens the frame (begin_frame) and draws the face;
+            // overlays compose into the same frame; end_frame() presents.
+            avatar.tick(now_ms, canvas);
+        }
 
         // Battery gauge overlay. Live from SharedState.
         if (state->battery_gauge_enabled.load(std::memory_order_relaxed)) {
@@ -218,7 +241,7 @@ void render_task_entry(void* arg)
 
         canvas.end_frame();
 
-        if (balloon_pending && avatar.is_balloon_done()) {
+        if (balloon_pending && (render_clawd ? clawd_face.is_balloon_done() : avatar.is_balloon_done())) {
             balloon_pending = false;
             args.state->notify_balloon_complete();
         }
