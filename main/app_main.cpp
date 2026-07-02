@@ -413,11 +413,6 @@ void demo_loop(const std::string& jtts_config_json, bool has_battery, bool is_at
 {
     using namespace stackchan;
 
-    constexpr avatar::Expression kCycle[] = {
-        avatar::Expression::Neutral, avatar::Expression::Happy, avatar::Expression::Doubt,
-        avatar::Expression::Sad,     avatar::Expression::Angry, avatar::Expression::Sleepy,
-    };
-
     // 空闲头部姿态对应旧固件「没人交互时自己动」的身体手感。这里并入
     // 新底盘已有随机姿态槽位，不新增第二套空闲动作路径。
     const float kYawMinDeg = static_cast<float>(limits.yaw_min_deg);
@@ -426,7 +421,6 @@ void demo_loop(const std::string& jtts_config_json, bool has_battery, bool is_at
     const float kPitchMaxDeg = static_cast<float>(limits.pitch_max_deg);
     constexpr std::uint32_t kPoseMinMs = 4000;
     constexpr std::uint32_t kPoseMaxMs = 8000;
-    constexpr std::uint32_t kExpressionPeriodMs = 5000;
     constexpr std::uint32_t kSpeechMinMs = 6000;
     constexpr std::uint32_t kSpeechMaxMs = 12000;
 
@@ -442,8 +436,6 @@ void demo_loop(const std::string& jtts_config_json, bool has_battery, bool is_at
         return low + (esp_random() % (high - low + 1));
     };
 
-    std::size_t expression_index = 0;
-    std::uint32_t next_expression_ms = 0;
     std::uint32_t next_pose_ms = rand_range_ms(kPoseMinMs, kPoseMaxMs);
     std::uint32_t next_speech_ms = 2000; // first babble shortly after boot
 
@@ -541,8 +533,8 @@ void demo_loop(const std::string& jtts_config_json, bool has_battery, bool is_at
         }
 
         // IMU shake → cycle to a random expression. Runs before the
-        // touch/UI block so a shake during conv idle interrupts the
-        // expression rotation immediately (no wait for the 5 s timer).
+        // touch/UI block so a shake during conv idle changes the face
+        // immediately.
         // A brief haptic confirms the shake actually registered (handy
         // when the user can't see the avatar on a wrist-worn device).
         if (now_ms >= next_shake_ms) {
@@ -706,7 +698,7 @@ void demo_loop(const std::string& jtts_config_json, bool has_battery, bool is_at
 
         // Idle behaviours (random head poses, nadenade) run when there is no
         // conversation OR the conversation is idly listening. The full demo
-        // (mouth-sync, Wi-Fi balloon, babble, expression cycle) runs only when
+        // (mouth-sync, Wi-Fi balloon, babble) runs only when
         // there is no conversation at all — otherwise it would fight the
         // conversation task for the avatar and the I2S bus.
         const bool allow_idle_demo = !conv_active || conv_idle;
@@ -926,15 +918,6 @@ void demo_loop(const std::string& jtts_config_json, bool has_battery, bool is_at
             g_state->target_yaw_deg.store(pose.yaw_deg, std::memory_order_relaxed);
             g_state->target_pitch_deg.store(pose.pitch_deg, std::memory_order_relaxed);
             next_pose_ms = now_ms + rand_range_ms(kPoseMinMs, kPoseMaxMs);
-        }
-
-        // Cycle expression every 5 s — full demo only; during a conversation
-        // the model drives the expression via the set_expression tool.
-        if (allow_full_demo && !head_pet_touch_active && !head_pet_restore_pending &&
-            now_ms >= next_expression_ms) {
-            g_state->expression.store(static_cast<int>(kCycle[expression_index]), std::memory_order_relaxed);
-            expression_index = (expression_index + 1) % (sizeof(kCycle) / sizeof(kCycle[0]));
-            next_expression_ms = now_ms + kExpressionPeriodMs;
         }
 
         vTaskDelay(pdMS_TO_TICKS(50));
