@@ -3,6 +3,7 @@
 
 #include "servo_task.hpp"
 
+#include <cmath>
 #include <driver/gpio.h>
 #include <driver/uart.h>
 #include <esp_log.h>
@@ -10,6 +11,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#include "clawd_motion/motion.hpp"
 #include "scs_servo/scs_bus.hpp"
 #include "scs_servo/scs_servo.hpp"
 
@@ -20,9 +22,10 @@ namespace {
 constexpr const char* kTag = "servo";
 constexpr TickType_t kPeriodTicks = pdMS_TO_TICKS(20);
 
-// SCS0009 Goal Speed is roughly in 0.146°/s units; 200 ≈ 30°/s — pleasant
-// head-turning speed. Goal Time = 0 means "use Goal Speed".
-constexpr std::uint16_t kGoalSpeed = 200;
+// 默认弹簧速度。弹簧生效时把 SCS Goal Speed 置为 0，让舵机跟随
+// 插值后的目标点，避免在弹簧外再叠一层慢速斜坡。Goal Time = 0 表示立即运动。
+constexpr std::uint16_t kDefaultSpringSpeed = 200;
+constexpr std::uint16_t kFollowGoalSpeed = 0;
 constexpr std::uint16_t kGoalTime = 0;
 
 void servo_task_entry(void* arg)
@@ -52,33 +55,22 @@ void servo_task_entry(void* arg)
     } else {
         ESP_LOGI(kTag, "pitch (id=%u) ping OK", scs_servo::kPitchId);
     }
-    // Torque is engaged on demand: enabled just before a move, released once
-    // the move should have completed, so the servos are silent / cool / free
-    // while the head holds still. Moves are speed-based (kGoalTime = 0), so we
-    // estimate the duration from the angular distance and goal speed. The
-    // on-device 操作 toggle's servo_enabled = false forces torque off and
-    // suppresses moves entirely (脱力).
-    constexpr float kDegPerStep = 0.3125f;      // SCS0009: 1 step ≈ 0.3125°
-    constexpr float kDegPerSpeedUnit = 0.15f;   // goal-speed unit ≈ 0.15 °/s
-    constexpr std::uint32_t kSettleMarginMs = 150; // hold a bit past the estimate
-    constexpr std::uint32_t kMinHoldMs = 120;
-    constexpr std::uint32_t kUnknownMoveMs = 1500;  // start pose / re-drive (origin unknown)
-
-    auto move_ms = [](std::uint16_t from, std::uint16_t to, std::uint16_t speed) -> std::uint32_t {
-        const int delta = (from > to) ? (from - to) : (to - from);
-        const float dps = speed * kDegPerSpeedUnit;
-        if (dps <= 0.0f) return kMinHoldMs;
-        const std::uint32_t ms = static_cast<std::uint32_t>(delta * kDegPerStep / dps * 1000.0f);
-        return ms < kMinHoldMs ? kMinHoldMs : ms;
-    };
+    // 按需打开扭矩：运动前打开，弹簧稳定后释放。头部静止时，舵机保持安静、
+    // 低温、可被手动拨动。设备端「操作」开关把 servo_enabled 设为 false 时，
+    // 强制关闭扭矩并抑制所有运动（脱力）。
+    constexpr std::uint32_t kSettleMarginMs = 150;
     auto now_ms = [] { return static_cast<std::uint32_t>(esp_timer_get_time() / 1000); };
+    auto target_changed = [](float a, float b) { return std::fabs(a - b) > 0.001f; };
 
-    // Start with torque off; the first loop drives to the commanded pose.
+    // 启动时先关闭扭矩；第一次循环会驱动到当前命令姿态。
     std::uint16_t last_yaw_target = 0xFFFF;
     std::uint16_t last_pitch_target = 0xFFFF;
+    clawd_motion::SpringAxis yaw_motion;
+    clawd_motion::SpringAxis pitch_motion;
     bool torque_on = false;
     bool last_enabled = true;
     std::uint32_t release_at = 0; // when to drop torque after the current move
+    std::uint32_t last_step_ms = now_ms();
 
     // Range-setting mode: torque off (so the user moves the head by hand) and
     // poll present-position every ~150 ms so the settings UIs can show / capture
@@ -117,8 +109,18 @@ void servo_task_entry(void* arg)
             continue;
         }
         if (last_range_mode) {
-            // Exited range mode: drop stale present-position so a stale read
-            // doesn't confuse the UI (re-publish on the next entry).
+            // 退出范围设置模式：丢弃旧的当前位置，避免旧读数误导 UI。
+            // 下次进入时会重新发布。
+            if (const auto raw = args.state->servo_yaw_raw.load(std::memory_order_relaxed); raw >= 0) {
+                yaw_motion.reset(clamp_deg(scs_servo::raw_to_deg(static_cast<std::uint16_t>(raw),
+                                                                 args.limits.yaw_zero),
+                                           args.limits.yaw_min_deg, args.limits.yaw_max_deg));
+            }
+            if (const auto raw = args.state->servo_pitch_raw.load(std::memory_order_relaxed); raw >= 0) {
+                pitch_motion.reset(clamp_deg(scs_servo::raw_to_deg(static_cast<std::uint16_t>(raw),
+                                                                   args.limits.pitch_zero),
+                                             args.limits.pitch_min_deg, args.limits.pitch_max_deg));
+            }
             args.state->servo_yaw_raw.store(-1, std::memory_order_relaxed);
             args.state->servo_pitch_raw.store(-1, std::memory_order_relaxed);
             last_yaw_target = last_pitch_target = 0xFFFF; // re-drive
@@ -137,7 +139,7 @@ void servo_task_entry(void* arg)
             continue;
         }
         if (!last_enabled) {
-            // Re-enabled (復帰): re-drive to the commanded pose.
+            // 重新启用（復帰）：重新驱动到当前命令姿态。
             last_yaw_target = last_pitch_target = 0xFFFF;
             last_enabled = true;
         }
@@ -164,41 +166,74 @@ void servo_task_entry(void* arg)
                                         args.limits.yaw_min_deg, args.limits.yaw_max_deg);
         const float pitch_deg = clamp_deg(args.state->target_pitch_deg.load(std::memory_order_relaxed),
                                           args.limits.pitch_min_deg, args.limits.pitch_max_deg);
-        const std::uint16_t yaw_target = scs_servo::deg_to_raw(yaw_deg, args.limits.yaw_zero);
-        const std::uint16_t pitch_target = scs_servo::deg_to_raw(pitch_deg, args.limits.pitch_zero);
 
-        // Non-zero servo_speed_override lets the demo task drive snappy
-        // gestures (e.g. head shake on nadenade) without permanently raising
-        // the default head-turn speed.
-        const std::uint16_t override = args.state->servo_speed_override.load(std::memory_order_relaxed);
-        const std::uint16_t speed = override != 0 ? override : kGoalSpeed;
+        if (!yaw_motion.initialized()) {
+            if (auto r = yaw.read_present_position()) {
+                yaw_motion.reset(clamp_deg(scs_servo::raw_to_deg(*r, args.limits.yaw_zero),
+                                           args.limits.yaw_min_deg, args.limits.yaw_max_deg));
+            } else {
+                yaw_motion.reset(yaw_deg);
+            }
+            last_yaw_target = 0xFFFF; // force first goal write
+        }
+        if (!pitch_motion.initialized()) {
+            if (auto r = pitch.read_present_position()) {
+                pitch_motion.reset(clamp_deg(scs_servo::raw_to_deg(*r, args.limits.pitch_zero),
+                                             args.limits.pitch_min_deg, args.limits.pitch_max_deg));
+            } else {
+                pitch_motion.reset(pitch_deg);
+            }
+            last_pitch_target = 0xFFFF; // force first goal write
+        }
 
-        if (yaw_target != last_yaw_target || pitch_target != last_pitch_target) {
+        if (target_changed(yaw_deg, yaw_motion.target()) ||
+            target_changed(pitch_deg, pitch_motion.target())) {
+            // 非零 servo_speed_override 只在下一次目标变化时消费一次。
+            // 这样快速手势不会永久提高后续空闲动作的弹簧速度。
+            const std::uint16_t override =
+                args.state->servo_speed_override.exchange(0, std::memory_order_relaxed);
+            const std::uint16_t speed = override != 0 ? override : kDefaultSpringSpeed;
+            yaw_motion.retarget(yaw_deg, speed);
+            pitch_motion.retarget(pitch_deg, speed);
+        }
+
+        const std::uint32_t step_now_ms = now_ms();
+        float dt_s = static_cast<float>(step_now_ms - last_step_ms) / 1000.0f;
+        last_step_ms = step_now_ms;
+        if (dt_s <= 0.0f) dt_s = 0.02f;
+        if (dt_s > 0.05f) dt_s = 0.05f;
+
+        (void)yaw_motion.step(dt_s,
+                              static_cast<float>(args.limits.yaw_min_deg),
+                              static_cast<float>(args.limits.yaw_max_deg));
+        (void)pitch_motion.step(dt_s,
+                                static_cast<float>(args.limits.pitch_min_deg),
+                                static_cast<float>(args.limits.pitch_max_deg));
+
+        const std::uint16_t yaw_target = scs_servo::deg_to_raw(yaw_motion.current(),
+                                                               args.limits.yaw_zero);
+        const std::uint16_t pitch_target = scs_servo::deg_to_raw(pitch_motion.current(),
+                                                                 args.limits.pitch_zero);
+        const bool yaw_write = yaw_target != last_yaw_target;
+        const bool pitch_write = pitch_target != last_pitch_target;
+
+        if (yaw_write || pitch_write) {
             // Engage torque just before driving.
             if (!torque_on) {
                 (void)yaw.enable_torque(true);
                 (void)pitch.enable_torque(true);
                 torque_on = true;
             }
-            std::uint32_t mv = kMinHoldMs;
-            if (yaw_target != last_yaw_target) {
-                const std::uint32_t a = (last_yaw_target == 0xFFFF)
-                                            ? kUnknownMoveMs
-                                            : move_ms(last_yaw_target, yaw_target, speed);
-                if (a > mv) mv = a;
-                (void)yaw.write_goal_position(yaw_target, kGoalTime, speed);
+            if (yaw_write) {
+                (void)yaw.write_goal_position(yaw_target, kGoalTime, kFollowGoalSpeed);
                 last_yaw_target = yaw_target;
             }
-            if (pitch_target != last_pitch_target) {
-                const std::uint32_t a = (last_pitch_target == 0xFFFF)
-                                            ? kUnknownMoveMs
-                                            : move_ms(last_pitch_target, pitch_target, speed);
-                if (a > mv) mv = a;
-                (void)pitch.write_goal_position(pitch_target, kGoalTime, speed);
+            if (pitch_write) {
+                (void)pitch.write_goal_position(pitch_target, kGoalTime, kFollowGoalSpeed);
                 last_pitch_target = pitch_target;
             }
-            release_at = now_ms() + mv + kSettleMarginMs;
-        } else if (torque_on && now_ms() >= release_at) {
+            release_at = step_now_ms + kSettleMarginMs;
+        } else if (torque_on && !yaw_motion.moving() && !pitch_motion.moving() && step_now_ms >= release_at) {
             // Move complete and holding still → release torque.
             (void)yaw.enable_torque(false);
             (void)pitch.enable_torque(false);

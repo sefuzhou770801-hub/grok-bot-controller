@@ -3,6 +3,7 @@ set(_main_priv_reqs
     scs_servo
     avatar
     clawd_face
+    clawd_motion
     conversation
     config_service
     wifi_config_service
