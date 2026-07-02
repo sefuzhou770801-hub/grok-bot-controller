@@ -135,10 +135,10 @@ struct DeviceConfig {
     // speaks while it has nothing else going on). When off, demo_loop skips
     // the synthesise/play step entirely. The phrase list and voice tuning
     // (jtts_config_json) are kept untouched so flipping the switch back on
-    // restores the user's setup. Defaults to true (legacy behaviour).
+    // restores the user's setup. Defaults to false in the localized firmware.
     // When this is off AND openai_enabled is also off, demo_loop activates
     // a mic-driven lip-sync mode instead — see main/lip_sync_task.cpp.
-    bool jtts_idle_enabled = true;
+    bool jtts_idle_enabled = false;
     // JSON document carrying the user-tunable jtts babble parameters and
     // phrase list. The producer (BLE client) writes the raw JSON; the
     // consumer (main/speech.cpp) parses on startup. Empty → compile-time

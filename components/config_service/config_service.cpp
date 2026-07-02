@@ -39,11 +39,11 @@ namespace stackchan::config {
 const char* operation_mode_label(OperationMode m)
 {
     switch (m) {
-    case OperationMode::MicLipSync:   return "マイクリップシンク";
-    case OperationMode::JttsRandom:   return "JTTSランダム発話";
-    case OperationMode::Conversation: return "会話応答";
-    case OperationMode::AsrLocal:     return "ローカル音声認識";
-    case OperationMode::EspNowRemote: return "ESP-NOWリモコン";
+    case OperationMode::MicLipSync:   return "麦克风口型";
+    case OperationMode::JttsRandom:   return "JTTS随机语音";
+    case OperationMode::Conversation: return "对话响应";
+    case OperationMode::AsrLocal:     return "本地语音识别";
+    case OperationMode::EspNowRemote: return "ESP-NOW遥控";
     }
     return "?";
 }

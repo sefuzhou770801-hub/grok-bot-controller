@@ -49,7 +49,7 @@ void draw_balloon(RichCanvas& canvas, DrawContext& ctx)
     const std::int16_t canvas_w = static_cast<std::int16_t>(canvas.width());
     const std::int16_t canvas_h = static_cast<std::int16_t>(canvas.height());
     const bool small_panel = canvas_h <= kSmallPanelHeightThreshold;
-    const auto* font = small_panel ? &fonts::lgfxJapanGothic_12 : &fonts::lgfxJapanGothic_24;
+    const auto* font = small_panel ? &fonts::efontCN_12 : &fonts::efontCN_16;
     const std::int16_t panel_h = small_panel ? kSmallPanelH : kBigPanelH;
     const std::int16_t panel_x = kMargin;
     const std::int16_t panel_w = canvas_w - kMargin * 2;

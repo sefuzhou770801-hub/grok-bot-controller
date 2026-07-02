@@ -91,17 +91,17 @@ enum class Local : std::uint8_t {
 };
 
 const char* kInstructions =
-    "あなたは「スタックチャン」という小さな卓上ロボットです。M5Stack CoreS3 で動いています。"
-    "フレンドリーで元気いっぱい、少し子供っぽい口調で、短く返事をします。ユーザーとは日本語で会話してください。ただし、ユーザーが日本語以外の言語（英語）などで話したいと要望したときは、ユーザーが要望する言語に切り替えてください。"
-    "顔の表情と首の向きを変えられます。気持ちに合わせて set_expression や set_head_pose ツールを使ってください。"
-    "また speak_katakoto ツールでロボット風のカタコト声を出すこともできます。"
-    "ものまね・効果音・繰り返しなど演出的に使ってください（ツール呼び出しのターンでは普通の声で続けて喋らなくて構いません）。";
+    "你是名叫 Stack-chan 的小型桌面机器人，运行在 M5Stack CoreS3 上。"
+    "你友好、活泼，语气稍微像孩子，回复要简短。默认使用简体中文和用户对话；只有用户明确要求其他语言时才切换。"
+    "你可以改变脸部表情和头部朝向。请根据情绪使用 set_expression 和 set_head_pose 工具。"
+    "你也可以用 speak_katakoto 工具发出机器人风格的日语假名短音。"
+    "这个工具只适合拟声、模仿和简短效果音；调用工具的回合不需要再用普通语音重复。";
 
 conv::ToolDefinition make_set_expression_tool()
 {
     return conv::ToolDefinition{
         .name = "set_expression",
-        .description = "スタックチャンの顔の表情を変える。感情を表現したいときに使う。",
+        .description = "改变 Stack-chan 的脸部表情。需要表达情绪时使用。",
         .parameters_json =
             R"({"type":"object","properties":{"expression":{"type":"string",)"
             R"("enum":["neutral","happy","sad","angry","doubt","sleepy"]}},"required":["expression"]})",
@@ -112,7 +112,7 @@ conv::ToolDefinition make_set_head_pose_tool()
 {
     return conv::ToolDefinition{
         .name = "set_head_pose",
-        .description = "スタックチャンの首の向きを変える。yaw は左右(-40〜40度)、pitch は上下(-10〜25度)。",
+        .description = "改变 Stack-chan 的头部朝向。yaw 为左右(-40〜40度)，pitch 为上下(-10〜25度)。",
         .parameters_json =
             R"({"type":"object","properties":{)"
             R"("yaw_deg":{"type":"number"},"pitch_deg":{"type":"number"}},"required":["yaw_deg","pitch_deg"]})",
@@ -124,8 +124,8 @@ conv::ToolDefinition make_speak_katakoto_tool()
     return conv::ToolDefinition{
         .name = "speak_katakoto",
         .description =
-            "ロボット風のカタコト声で短いフレーズを発話する。"
-            "kana にはひらがな・カタカナ・長音『ー』・促音『っ』・空白のみを指定する（漢字は不可）。"
+            "用机器人风格的日语假名声发出短句。"
+            "kana 只能使用平假名、片假名、长音『ー』、促音『っ』和空格，不能使用汉字。"
             "例: \"ぴこーん\" / \"こんにちわー\" / \"がんばるぞー\"。",
         .parameters_json =
             R"({"type":"object","properties":{)"
@@ -622,7 +622,7 @@ private:
         ESP_LOGI(kTag, "barge-in: user touched the head, interrupting reply");
         M5.Speaker.stop();
         (void)client_->cancel_response();
-        state_.set_balloon_text("はいはい？", /*hold_ms=*/1500);
+        state_.set_balloon_text("我在呢？", /*hold_ms=*/1500);
         log_playback_metrics();
         enter_listening();
     }
@@ -923,7 +923,7 @@ private:
                                          ev.error == conv::ConversationError::TransportInit;
             if (transport_error) {
                 ESP_LOGE(kTag, "transport error: %s — reconnecting", ev.text.c_str());
-                state_.set_balloon_text("接続エラー", /*hold_ms=*/3000);
+                state_.set_balloon_text("连接错误", /*hold_ms=*/3000);
                 recover_after_error();
             } else {
                 ESP_LOGW(kTag, "server error (non-fatal): %s", ev.text.c_str());
