@@ -2,6 +2,7 @@ set(_main_priv_reqs
     board
     scs_servo
     avatar
+    clawd_face
     conversation
     config_service
     wifi_config_service
