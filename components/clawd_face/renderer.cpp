@@ -642,6 +642,7 @@ private:
         canvas.setClipRect(margin + 8, y + 4, width_ - margin * 2 - 16, box_h - 8);
         canvas.setTextDatum(lgfx::textdatum_t::middle_left);
         canvas.setTextColor(white, black);
+        canvas.setFont(&fonts::efontCN_16);
         canvas.setTextSize(1);
         canvas.drawString(balloon_text_.c_str(), margin + 10, y + box_h / 2);
         canvas.clearClipRect();

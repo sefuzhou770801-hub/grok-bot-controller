@@ -228,7 +228,7 @@ bool draw(avatar::RichCanvas& canvas)
         ? (h - 8 * row_h) / 2  // 8 rows centered vertically
         : 6;
 
-    canvas.setFont(large ? &fonts::lgfxJapanGothic_20 : &fonts::lgfxJapanGothic_12);
+    canvas.setFont(large ? &fonts::efontCN_16 : &fonts::efontCN_12);
     canvas.setTextDatum(lgfx::textdatum_t::top_left);
 
     auto kv = [&](int row, const char* key, const char* value, std::uint16_t vcolor) {
@@ -241,10 +241,10 @@ bool draw(avatar::RichCanvas& canvas)
 
     int row = 0;
     kv(row++, "FW",   app ? app->version : "?", fg);
-    kv(row++, "SSID", g_ssid.empty() ? "(unset)" : g_ssid.c_str(), fg);
+    kv(row++, "SSID", g_ssid.empty() ? "(未设置)" : g_ssid.c_str(), fg);
     kv(row++, "IP",   ip.c_str(), wifi ? fg : off);
-    kv(row++, "Wifi", wifi ? "up" : "down", wifi ? ok : off);
-    kv(row++, "BLE",  ble ? "conn" : "wait", ble ? ok : fg);
+    kv(row++, "Wi-Fi", wifi ? "已连" : "断开", wifi ? ok : off);
+    kv(row++, "BLE",  ble ? "已连" : "等待", ble ? ok : fg);
     kv(row++, "Conv", conv_status_label(cs), fg);
     kv(row++, "Mode", op_mode_short(g_op_mode), fg);
     kv(row++, "Time", time_buf, fg);
@@ -253,7 +253,7 @@ bool draw(avatar::RichCanvas& canvas)
     canvas.setTextColor(dim);
     canvas.setTextDatum(lgfx::textdatum_t::bottom_center);
     const int hint_y = large ? h - safe_inset : h - 2;
-    canvas.drawString("hold BtnA: mode", w / 2, hint_y);
+    canvas.drawString("长按A键：模式", w / 2, hint_y);
     return true;
 }
 

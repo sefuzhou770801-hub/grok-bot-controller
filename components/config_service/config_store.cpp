@@ -114,7 +114,7 @@ DeviceConfig load()
     } else if (rtp_err != ESP_ERR_NVS_NOT_FOUND) {
         ESP_LOGW(kTag, "nvs_get_u8(%s): %s", kKeyRtpAudioEnabled, esp_err_to_name(rtp_err));
     }
-    std::uint8_t jtts_idle = 1;
+    std::uint8_t jtts_idle = 0;
     esp_err_t ji_err = nvs_get_u8(h, kKeyJttsIdleEnabled, &jtts_idle);
     if (ji_err == ESP_OK) {
         cfg.jtts_idle_enabled = (jtts_idle != 0);

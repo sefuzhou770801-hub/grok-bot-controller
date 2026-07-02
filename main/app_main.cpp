@@ -739,7 +739,7 @@ void demo_loop(const std::string& jtts_config_json, bool has_battery, bool is_at
                 if (!wifi_ok && !wifi_warning_active) {
                     speech.stop();
                     // hold_ms = UINT32_MAX so the balloon stays put until we clear it.
-                    g_state->set_balloon_text("Wi-Fi: 切断中", /*hold_ms=*/UINT32_MAX);
+                    g_state->set_balloon_text("Wi-Fi: 未连接", /*hold_ms=*/UINT32_MAX);
                     balloon_in_flight.store(false, std::memory_order_release);
                     wifi_warning_active = true;
                 } else if (wifi_ok && wifi_warning_active) {
@@ -806,7 +806,7 @@ void demo_loop(const std::string& jtts_config_json, bool has_battery, bool is_at
                 g_state->expression.store(static_cast<int>(avatar::Expression::Happy),
                                           std::memory_order_relaxed);
                 balloon_in_flight.store(true, std::memory_order_release);
-                g_state->set_balloon_text("なでなで♡", /*hold_ms=*/2200, [] {
+                g_state->set_balloon_text("摸摸头♡", /*hold_ms=*/2200, [] {
                     balloon_in_flight.store(false, std::memory_order_release);
                 });
 
