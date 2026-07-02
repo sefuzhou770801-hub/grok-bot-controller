@@ -22,6 +22,7 @@
 
 #include "avatar/expression.hpp"
 #include "battery.hpp"
+#include "clawd_motion/motion.hpp"
 #include "device_ui.hpp"
 #include "lt_timer.hpp"
 #include "screens.hpp"
@@ -65,8 +66,8 @@ constexpr const char* kTag = "stackchan";
     const float kYawMaxDeg = static_cast<float>(limits.yaw_max_deg);
     const float kPitchMinDeg = static_cast<float>(limits.pitch_min_deg);
     const float kPitchMaxDeg = static_cast<float>(limits.pitch_max_deg);
-    constexpr std::uint32_t kPoseMinMs = 10000;
-    constexpr std::uint32_t kPoseMaxMs = 20000;
+    constexpr std::uint32_t kPoseMinMs = 4000;
+    constexpr std::uint32_t kPoseMaxMs = 8000;
     constexpr std::uint32_t kExpressionPeriodMs = 5000;
     constexpr std::uint32_t kSpeechMinMs = 6000;
     constexpr std::uint32_t kSpeechMaxMs = 12000;
@@ -79,10 +80,6 @@ constexpr const char* kTag = "stackchan";
     // the on-device LT tab. configure() is fed later from NVS (Phase 4).
     static app::LtTimer lt_timer;
 
-    auto rand_in = [](float low, float high) {
-        const float u = static_cast<float>(esp_random()) / static_cast<float>(UINT32_MAX);
-        return low + (high - low) * u;
-    };
     auto rand_range_ms = [](std::uint32_t low, std::uint32_t high) {
         return low + (esp_random() % (high - low + 1));
     };
@@ -125,6 +122,19 @@ constexpr const char* kTag = "stackchan";
     std::array<std::uint32_t, 3> stroke_hit_ms{0, 0, 0}; // first-hit-3 time per zone (0 = not yet)
     std::uint32_t stroke_active_ms = 0;   // last time any zone was non-zero
     std::uint32_t next_nadenade_ms = 0;   // earliest time we'll trigger again
+    constexpr std::uint32_t kHeadPetRestoreDelayMs = 3000;
+    clawd_motion::Limits motion_limits{
+        .yaw_min_deg = kYawMinDeg,
+        .yaw_max_deg = kYawMaxDeg,
+        .pitch_min_deg = kPitchMinDeg,
+        .pitch_max_deg = kPitchMaxDeg,
+    };
+    bool head_pet_touch_active = false;
+    bool head_pet_restore_pending = false;
+    int head_pet_prev_expr = static_cast<int>(avatar::Expression::Neutral);
+    float head_pet_prev_yaw = 0.0f;
+    float head_pet_prev_pitch = 0.0f;
+    std::uint32_t head_pet_restore_at_ms = 0;
 
     // Last-applied speaker volume percent. Watches the SharedState atom
     // so the device-UI's −/+ nudge buttons re-apply via the same
@@ -445,6 +455,37 @@ constexpr const char* kTag = "stackchan";
                 last_logged[2] = bk;
             }
 
+            const bool firmly_touched = reading.firmly_touched();
+            if (firmly_touched && !head_pet_touch_active && !external_servo_control) {
+                if (!head_pet_restore_pending) {
+                    head_pet_prev_yaw = g_state->servo.target_yaw_deg.load(std::memory_order_relaxed);
+                    head_pet_prev_pitch = g_state->servo.target_pitch_deg.load(std::memory_order_relaxed);
+                    head_pet_prev_expr = g_state->face.expression.load(std::memory_order_relaxed);
+                }
+                head_pet_touch_active = true;
+                head_pet_restore_pending = false;
+                speech.stop();
+
+                g_state->face.expression.store(static_cast<int>(avatar::Expression::Happy),
+                                               std::memory_order_relaxed);
+                balloon_in_flight.store(true, std::memory_order_release);
+                g_state->set_balloon_text("なでなで♡", /*hold_ms=*/2200, [] {
+                    balloon_in_flight.store(false, std::memory_order_release);
+                });
+
+                const auto pose = clawd_motion::head_pet_pose(
+                    head_pet_prev_yaw, head_pet_prev_pitch, motion_limits, esp_random());
+                g_state->servo.speed_override.store(pose.speed, std::memory_order_relaxed);
+                g_state->servo.target_yaw_deg.store(pose.yaw_deg, std::memory_order_relaxed);
+                g_state->servo.target_pitch_deg.store(pose.pitch_deg, std::memory_order_relaxed);
+                next_speech_ms = now_ms + 1500;
+                next_pose_ms = std::max(next_pose_ms, now_ms + 2000);
+            } else if (!firmly_touched && head_pet_touch_active) {
+                head_pet_touch_active = false;
+                head_pet_restore_pending = true;
+                head_pet_restore_at_ms = now_ms + kHeadPetRestoreDelayMs;
+            }
+
             // End (and clear) the gesture once the head's been all-quiet for
             // longer than the inter-zone gap.
             if (now_ms - stroke_active_ms > kStrokeGapMs) {
@@ -526,17 +567,31 @@ constexpr const char* kTag = "stackchan";
             }
         }
 
-        // Random yaw + pitch every 10–20 s. Suppressed when an external source
-        // (ESP-NOW remote) owns the head.
-        if (!external_servo_control && now_ms >= next_pose_ms) {
-            g_state->servo.target_yaw_deg.store(rand_in(kYawMinDeg, kYawMaxDeg), std::memory_order_relaxed);
-            g_state->servo.target_pitch_deg.store(rand_in(kPitchMinDeg, kPitchMaxDeg), std::memory_order_relaxed);
+        if (head_pet_restore_pending && now_ms >= head_pet_restore_at_ms) {
+            head_pet_restore_pending = false;
+            g_state->face.expression.store(head_pet_prev_expr, std::memory_order_relaxed);
+            g_state->servo.speed_override.store(200, std::memory_order_relaxed);
+            g_state->servo.target_yaw_deg.store(head_pet_prev_yaw, std::memory_order_relaxed);
+            g_state->servo.target_pitch_deg.store(head_pet_prev_pitch, std::memory_order_relaxed);
+        }
+
+        // 空闲头部姿态沿用旧固件「没人交互时自己动」的身体手感。
+        if (!external_servo_control && !head_pet_touch_active && !head_pet_restore_pending &&
+            now_ms >= next_pose_ms) {
+            const auto pose = clawd_motion::idle_pose(
+                g_state->servo.target_yaw_deg.load(std::memory_order_relaxed),
+                g_state->servo.target_pitch_deg.load(std::memory_order_relaxed),
+                motion_limits, esp_random());
+            g_state->servo.speed_override.store(pose.speed, std::memory_order_relaxed);
+            g_state->servo.target_yaw_deg.store(pose.yaw_deg, std::memory_order_relaxed);
+            g_state->servo.target_pitch_deg.store(pose.pitch_deg, std::memory_order_relaxed);
             next_pose_ms = now_ms + rand_range_ms(kPoseMinMs, kPoseMaxMs);
         }
 
         // Cycle expression every 5 s — full demo only; during a conversation
         // the model drives the expression via the set_expression tool.
-        if (allow_full_demo && now_ms >= next_expression_ms) {
+        if (allow_full_demo && !head_pet_touch_active && !head_pet_restore_pending &&
+            now_ms >= next_expression_ms) {
             g_state->face.expression.store(static_cast<int>(kCycle[expression_index]), std::memory_order_relaxed);
             expression_index = (expression_index + 1) % (sizeof(kCycle) / sizeof(kCycle[0]));
             next_expression_ms = now_ms + kExpressionPeriodMs;
