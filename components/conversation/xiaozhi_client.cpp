@@ -42,7 +42,13 @@ constexpr int kUplinkSampleRate = 16000;
 constexpr int kUplinkFrameMs = 60;
 constexpr std::size_t kUplinkFrameSamples = kUplinkSampleRate * kUplinkFrameMs / 1000; // 960
 
-constexpr TickType_t kSendTimeout = pdMS_TO_TICKS(10000);
+// esp_websocket_client aborts the connection when a send times out (its
+// poll_write wrote 0 bytes), so this is effectively the "give up and let
+// recovery reconnect" threshold. Must stay under the 5 s task watchdog: a
+// stalled link otherwise pins the sender task on core 1 for the full timeout,
+// starving core 1 and losing frames. 3 s rides out transient Wi-Fi stalls;
+// a longer stall means the turn is already lost and reconnecting is correct.
+constexpr TickType_t kSendTimeout = pdMS_TO_TICKS(3000);
 
 constexpr UBaseType_t kSenderTaskPrio = 5;
 // libopus' CELT/SILK encode path is stack-hungry (large on-stack arrays); 8 KB

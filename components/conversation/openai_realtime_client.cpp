@@ -44,9 +44,11 @@ constexpr std::size_t kMaxChunkBytes = 1024;
 // immediately, so a long write here just delays the sender, not capture.
 // esp_websocket_client unconditionally aborts the connection on a send that
 // returns 0 bytes (its `poll_write` timed out), so this is effectively our
-// "give up and reconnect" threshold. Generous enough that a brief BLE-coex
-// or Wi-Fi DTIM stall doesn't tear the session down.
-constexpr TickType_t kSendTimeout = pdMS_TO_TICKS(10000);
+// "give up and reconnect" threshold. Must stay under the 5 s task watchdog:
+// a stalled link otherwise pins the sender task for the full timeout. 3 s
+// still rides out brief BLE-coex or Wi-Fi DTIM stalls; a longer stall means
+// the turn is already lost and reconnecting is correct.
+constexpr TickType_t kSendTimeout = pdMS_TO_TICKS(3000);
 
 // Background sender task: drains audio_tx_queue_, encodes each chunk to
 // base64+JSON, calls esp_websocket_client_send_text. Pinned to core 1 so it
