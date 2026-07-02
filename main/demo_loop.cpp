@@ -54,11 +54,6 @@ constexpr const char* kTag = "stackchan";
 
     using namespace stackchan;
 
-    constexpr avatar::Expression kCycle[] = {
-        avatar::Expression::Neutral, avatar::Expression::Happy, avatar::Expression::Doubt,
-        avatar::Expression::Sad,     avatar::Expression::Angry, avatar::Expression::Sleepy,
-    };
-
     // Random head pose targets, redrawn every kPoseMinMs..kPoseMaxMs. The
     // ranges come from the per-device ServoLimits so the demo respects the
     // configured motion (servo_task also clamps defensively).
@@ -68,7 +63,6 @@ constexpr const char* kTag = "stackchan";
     const float kPitchMaxDeg = static_cast<float>(limits.pitch_max_deg);
     constexpr std::uint32_t kPoseMinMs = 4000;
     constexpr std::uint32_t kPoseMaxMs = 8000;
-    constexpr std::uint32_t kExpressionPeriodMs = 5000;
     constexpr std::uint32_t kSpeechMinMs = 6000;
     constexpr std::uint32_t kSpeechMaxMs = 12000;
 
@@ -84,8 +78,6 @@ constexpr const char* kTag = "stackchan";
         return low + (esp_random() % (high - low + 1));
     };
 
-    std::size_t expression_index = 0;
-    std::uint32_t next_expression_ms = 0;
     std::uint32_t next_pose_ms = 0;
     std::uint32_t next_speech_ms = 2000; // first babble shortly after boot
 
@@ -213,8 +205,8 @@ constexpr const char* kTag = "stackchan";
         }
 
         // IMU shake → cycle to a random expression. Runs before the
-        // touch/UI block so a shake during conv idle interrupts the
-        // expression rotation immediately (no wait for the 5 s timer).
+        // touch/UI block so a shake during conv idle changes the face
+        // immediately.
         // A brief haptic confirms the shake actually registered (handy
         // when the user can't see the avatar on a wrist-worn device).
         if (now_ms >= next_shake_ms) {
@@ -586,15 +578,6 @@ constexpr const char* kTag = "stackchan";
             g_state->servo.target_yaw_deg.store(pose.yaw_deg, std::memory_order_relaxed);
             g_state->servo.target_pitch_deg.store(pose.pitch_deg, std::memory_order_relaxed);
             next_pose_ms = now_ms + rand_range_ms(kPoseMinMs, kPoseMaxMs);
-        }
-
-        // Cycle expression every 5 s — full demo only; during a conversation
-        // the model drives the expression via the set_expression tool.
-        if (allow_full_demo && !head_pet_touch_active && !head_pet_restore_pending &&
-            now_ms >= next_expression_ms) {
-            g_state->face.expression.store(static_cast<int>(kCycle[expression_index]), std::memory_order_relaxed);
-            expression_index = (expression_index + 1) % (sizeof(kCycle) / sizeof(kCycle[0]));
-            next_expression_ms = now_ms + kExpressionPeriodMs;
         }
 
         vTaskDelay(pdMS_TO_TICKS(50));
