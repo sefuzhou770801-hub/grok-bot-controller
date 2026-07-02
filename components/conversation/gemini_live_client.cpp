@@ -42,8 +42,9 @@ constexpr const char* kPath = "/ws/google.ai.generativelanguage.v1beta.Generativ
 // on this (push_audio() enqueues), so a long write here just delays the
 // sender. esp_websocket_client aborts the connection on a 0-byte write
 // when poll_write times out, so this is effectively our "give up and let
-// recovery reconnect" threshold.
-constexpr TickType_t kSendTimeout = pdMS_TO_TICKS(10000);
+// recovery reconnect" threshold. Must stay under the 5 s task watchdog:
+// a stalled link otherwise pins the sender task for the full timeout.
+constexpr TickType_t kSendTimeout = pdMS_TO_TICKS(3000);
 
 constexpr UBaseType_t kSenderTaskPrio = 5;
 constexpr std::size_t kSenderTaskStack = 6144;
