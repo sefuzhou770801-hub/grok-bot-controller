@@ -27,7 +27,7 @@ namespace {
 constexpr const char* kTag = "clawd_face";
 constexpr const char* kBasePath = "/clawd";
 constexpr const char* kStorageLabel = "storage";
-constexpr std::int32_t kScale = 3;
+constexpr std::int32_t kScale = 1;
 constexpr std::uint32_t kDefaultBalloonHoldMs = 3500;
 
 struct Animation {
@@ -49,11 +49,11 @@ constexpr Animation kAnimations[] = {
     {"debugger", "clawd_debugger.rle", 125, true},
     {"conducting", "clawd_conducting.rle", 125, true},
     {"sleeping", "clawd_sleeping.rle", 125, true},
-    {"error", "clawd_alert.rle", 100, false},
-    {"notification", "clawd_alert.rle", 100, false},
-    {"carrying", "clawd_walking.rle", 125, true},
-    {"idle_reading", "clawd_wizard.rle", 125, true},
-    {"alert", "clawd_alert.rle", 100, false},
+    {"error", "clawd_error.rle", 100, false},
+    {"notification", "clawd_notification.rle", 100, false},
+    {"carrying", "clawd_carrying.rle", 125, true},
+    {"idle_reading", "clawd_idle_reading.rle", 125, true},
+    {"alert", "clawd_error.rle", 100, false},
     {"disconnected", "clawd_disconnected.rle", 125, true},
     {"confused", "clawd_confused.rle", 125, true},
     {"dizzy", "clawd_dizzy.rle", 125, true},
@@ -597,6 +597,47 @@ private:
         }
     }
 
+    void draw_direct_run(avatar::RichCanvas& canvas, std::uint16_t value, std::uint32_t src_index,
+                         std::uint32_t count) const
+    {
+        const std::int32_t left = (width_ - static_cast<std::int32_t>(asset_.width)) / 2;
+        const std::int32_t top = height_ + static_cast<std::int32_t>(asset_.y_offset) -
+                                 static_cast<std::int32_t>(asset_.height);
+
+        std::uint32_t remaining = count;
+        std::uint32_t index = src_index;
+        while (remaining > 0) {
+            const std::uint32_t src_y = index / asset_.width;
+            const std::uint32_t src_x = index - src_y * asset_.width;
+            const std::uint32_t chunk = std::min<std::uint32_t>(remaining, asset_.width - src_x);
+
+            const std::int32_t x0 = left + static_cast<std::int32_t>(src_x);
+            const std::int32_t y0 = top + static_cast<std::int32_t>(src_y);
+            const std::int32_t x1 = x0 + static_cast<std::int32_t>(chunk);
+            const std::int32_t y1 = y0 + 1;
+            const std::int32_t clipped_x0 = std::max<std::int32_t>(0, x0);
+            const std::int32_t clipped_y0 = std::max<std::int32_t>(0, y0);
+            const std::int32_t clipped_x1 = std::min<std::int32_t>(width_, x1);
+            const std::int32_t clipped_y1 = std::min<std::int32_t>(height_, y1);
+            if (clipped_x1 > clipped_x0 && clipped_y1 > clipped_y0) {
+                canvas.fillRect(clipped_x0, clipped_y0, clipped_x1 - clipped_x0, clipped_y1 - clipped_y0, value);
+            }
+
+            index += chunk;
+            remaining -= chunk;
+        }
+    }
+
+    void draw_run(avatar::RichCanvas& canvas, std::uint16_t value, std::uint32_t src_index,
+                  std::uint32_t count) const
+    {
+        if constexpr (kScale == 1) {
+            draw_direct_run(canvas, value, src_index, count);
+        } else {
+            draw_scaled_run(canvas, value, src_index, count);
+        }
+    }
+
     void draw_current_frame(avatar::RichCanvas& canvas) const
     {
         if (asset_.frame_count == 0 || frame_index_ >= asset_.frame_count) {
@@ -620,7 +661,7 @@ private:
             rle += sizeof(std::uint16_t) * 2;
             const std::uint32_t count = std::min<std::uint32_t>(raw_count, pixel_count - src_index);
             if (value != asset_.transparent_key && count > 0) {
-                draw_scaled_run(canvas, value, src_index, count);
+                draw_run(canvas, value, src_index, count);
             }
             src_index += count;
         }
