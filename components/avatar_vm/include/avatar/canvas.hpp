@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
 
 #include <M5GFX.h> // lgfx::IFont / lgfx::textdatum_t (real header, or the WASM shim)
@@ -87,27 +86,6 @@ public:
     virtual std::int32_t textWidth(const char* str) = 0;
     virtual void setClipRect(std::int32_t x, std::int32_t y, std::int32_t w, std::int32_t h) = 0;
     virtual void clearClipRect() = 0;
-
-    virtual void pushImage(std::int32_t x, std::int32_t y, std::int32_t w, std::int32_t h,
-                           const std::uint16_t* data)
-    {
-        if (data == nullptr || w <= 0 || h <= 0) {
-            return;
-        }
-        for (std::int32_t row = 0; row < h; ++row) {
-            const std::uint16_t* line = data + static_cast<std::size_t>(row) * static_cast<std::size_t>(w);
-            std::int32_t run_x = 0;
-            while (run_x < w) {
-                const std::uint16_t color = line[run_x];
-                std::int32_t run_w = 1;
-                while (run_x + run_w < w && line[run_x + run_w] == color) {
-                    ++run_w;
-                }
-                fillRect(x + run_x, y + row, run_w, 1, color);
-                run_x += run_w;
-            }
-        }
-    }
 };
 
 } // namespace stackchan::avatar
