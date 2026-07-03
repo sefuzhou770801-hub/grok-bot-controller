@@ -79,6 +79,8 @@ constexpr std::uint32_t kThinkingTimeoutMs = 15000;
 // avatar inside a single user-noticeable pause. See GitHub issue #2.
 constexpr std::uint32_t kSpeakingTimeoutMs = 30000;
 constexpr std::uint8_t kLedModeSolid = 1;
+constexpr std::uint32_t kReconnectBackoffBaseMs = 500;
+constexpr std::uint32_t kReconnectBackoffCapMs = 30u * 1000u;
 
 // Local half-duplex state machine. Distinct from conv::ConversationState
 // (which tracks the protocol) because we hold "Speaking" until the speaker
@@ -194,6 +196,21 @@ std::int64_t now_us()
     return esp_timer_get_time();
 }
 
+std::uint32_t reconnect_backoff_ms(unsigned consecutive_failures)
+{
+    if (consecutive_failures == 0) {
+        return 0;
+    }
+    std::uint32_t backoff = kReconnectBackoffBaseMs;
+    for (unsigned i = 1; i < consecutive_failures; ++i) {
+        if (backoff >= kReconnectBackoffCapMs / 2) {
+            return kReconnectBackoffCapMs;
+        }
+        backoff *= 2;
+    }
+    return std::min(backoff, kReconnectBackoffCapMs);
+}
+
 // Owns the conversation; one instance per task.
 class Coordinator {
 public:
@@ -272,12 +289,7 @@ public:
         }
         client_->set_event_callback([this](const conv::ConversationEvent& ev) { enqueue_event(ev); });
 
-        if (!connect()) {
-            ESP_LOGE(kTag, "initial connect failed; conversation disabled");
-            state_.conversation_status.store(ConvStatus::Error, std::memory_order_relaxed);
-            vTaskDelete(nullptr);
-            return;
-        }
+        (void)connect_with_retries("首次连接", /*allow_audio_abort=*/false);
 
         for (;;) {
             // Full conversation shutdown for BLE audio streaming. Yielding
@@ -310,9 +322,8 @@ public:
             if (local_ == Local::Yielded) {
                 ESP_LOGI(kTag, "BLE audio done — restarting conversation");
                 state_.conversation_yielded_i2s.store(false, std::memory_order_release);
-                if (!connect()) {
-                    ESP_LOGW(kTag, "reconnect after audio stream failed; retrying in 5 s");
-                    vTaskDelay(pdMS_TO_TICKS(5000));
+                if (!connect_with_retries("BLE 音频结束后的重连",
+                                          /*allow_audio_abort=*/true)) {
                     continue;
                 }
                 // connect() leaves us in Local::Init waiting for the
@@ -404,6 +415,74 @@ private:
         return true;
     }
 
+    bool wait_for_wifi_for_reconnect(bool allow_audio_abort)
+    {
+        if (wifi_is_connected()) {
+            return true;
+        }
+        ESP_LOGW(kTag, "Wi-Fi 已断开；等待后再重连会话");
+        state_.conversation_status.store(ConvStatus::WaitingWifi, std::memory_order_relaxed);
+        while (!wifi_is_connected()) {
+            if (allow_audio_abort &&
+                state_.audio_stream_active.load(std::memory_order_acquire)) {
+                ESP_LOGI(kTag, "会话重连暂停：BLE 音频正在使用");
+                return false;
+            }
+            vTaskDelay(pdMS_TO_TICKS(500));
+        }
+        ESP_LOGI(kTag, "Wi-Fi 已恢复；继续重连会话");
+        return true;
+    }
+
+    bool delay_reconnect(std::uint32_t delay_ms, bool allow_audio_abort)
+    {
+        std::uint32_t waited_ms = 0;
+        while (waited_ms < delay_ms) {
+            if (allow_audio_abort &&
+                state_.audio_stream_active.load(std::memory_order_acquire)) {
+                ESP_LOGI(kTag, "会话重连退避暂停：BLE 音频正在使用");
+                return false;
+            }
+            const std::uint32_t step_ms = std::min<std::uint32_t>(500, delay_ms - waited_ms);
+            vTaskDelay(pdMS_TO_TICKS(step_ms));
+            waited_ms += step_ms;
+        }
+        return true;
+    }
+
+    bool connect_with_retries(const char* context, bool allow_audio_abort)
+    {
+        unsigned failed_starts = 0;
+        for (;;) {
+            if (allow_audio_abort &&
+                state_.audio_stream_active.load(std::memory_order_acquire)) {
+                ESP_LOGI(kTag, "%s 暂停：BLE 音频正在使用", context);
+                return false;
+            }
+            if (!wait_for_wifi_for_reconnect(allow_audio_abort)) {
+                return false;
+            }
+
+            ESP_LOGI(kTag, "%s：传输启动第 %u 次尝试",
+                     context, failed_starts + 1);
+            if (connect()) {
+                ESP_LOGI(kTag, "%s：传输启动已接受", context);
+                return true;
+            }
+
+            ++failed_starts;
+            state_.conversation_status.store(ConvStatus::Error, std::memory_order_relaxed);
+            flush_events();
+            const std::uint32_t backoff_ms = reconnect_backoff_ms(failed_starts);
+            ESP_LOGE(kTag, "%s：传输启动第 %u 次失败；%u ms 后重试",
+                     context, failed_starts, static_cast<unsigned>(backoff_ms));
+            state_.conversation_status.store(ConvStatus::Reconnecting, std::memory_order_relaxed);
+            if (!delay_reconnect(backoff_ms, allow_audio_abort)) {
+                return false;
+            }
+        }
+    }
+
     // from_failure = false: clean handoff (e.g. Gemini goAway). Skip the
     // exponential backoff counter bump, but still go through the standard
     // reconnect flow (teardown old client + dma settle + connect).
@@ -411,24 +490,23 @@ private:
     {
         if (from_failure) {
             ++consecutive_recover_failures_;
-            // Cap at 60 s. 500 ms × 2^(n-1) for n=1..7 then capped (n>=8 → 60s):
-            // 500 / 1k / 2k / 4k / 8k / 16k / 32k / 60k. First failure has
-            // essentially no extra wait beyond the DMA-settle loop below.
-            constexpr std::uint32_t kRecoverBackoffBaseMs = 500;
-            constexpr std::uint32_t kRecoverBackoffCapMs = 60u * 1000u;
-            const unsigned shift = std::min<unsigned>(consecutive_recover_failures_ - 1u, 7u);
+            // 封顶 30 秒。第 n 次失败退避为 500 ms × 2^(n-1)，序列是
+            // 500 / 1k / 2k / 4k / 8k / 16k / 30k。第一次失败不在这里
+            // 额外等待，避免瞬时抖动带来可感知延迟。
             const std::uint32_t backoff_ms =
-                std::min(kRecoverBackoffBaseMs << shift, kRecoverBackoffCapMs);
-            ESP_LOGW(kTag, "recovering conversation session (attempt #%u, backoff %u ms)",
+                reconnect_backoff_ms(consecutive_recover_failures_);
+            ESP_LOGW(kTag, "会话恢复：第 %u 次，退避 %u ms",
                      consecutive_recover_failures_, static_cast<unsigned>(backoff_ms));
             if (consecutive_recover_failures_ > 1) {
                 // Skip the wait on the first try so transient blips don't
                 // visibly delay reconnect; back off only when failures
                 // pile up.
-                vTaskDelay(pdMS_TO_TICKS(backoff_ms));
+                if (!delay_reconnect(backoff_ms, /*allow_audio_abort=*/true)) {
+                    return;
+                }
             }
         } else {
-            ESP_LOGI(kTag, "graceful session handoff (goAway)");
+            ESP_LOGI(kTag, "会话平滑切换（goAway）");
         }
         state_.conversation_status.store(ConvStatus::Reconnecting, std::memory_order_relaxed);
         state_.conversation_reconnects.fetch_add(1, std::memory_order_relaxed);
@@ -487,13 +565,7 @@ private:
         assistant_pcm_.clear();
         assistant_text_.clear();
         if (state_.audio_stream_active.load(std::memory_order_acquire)) return;
-        if (!connect()) {
-            ESP_LOGE(kTag, "reconnect failed; retrying in 5 s");
-            state_.conversation_status.store(ConvStatus::Error, std::memory_order_relaxed);
-            vTaskDelay(pdMS_TO_TICKS(5000));
-            flush_events();
-            connect();
-        }
+        (void)connect_with_retries("故障恢复重连", /*allow_audio_abort=*/true);
     }
 
     // ---- per-state servicing ----------------------------------------------
@@ -1166,8 +1238,7 @@ private:
     // Bumped on every recover_after_error(/*from_failure=*/true) and reset
     // when StateChanged → Listening fires for the new session (= the server
     // accepted setup). Capped backoff at kRecoverBackoffCapMs so prolonged
-    // outages don't drag the wait time past 1 min — Gemini's preview-endpoint
-    // 1011 storms typically last 10-30 s, so 60 s of grace is plenty.
+    // outages don't drag each retry past 30 s.
     unsigned consecutive_recover_failures_{0};
 
     // --- audio-pipeline diagnostics ----------------------------------------
