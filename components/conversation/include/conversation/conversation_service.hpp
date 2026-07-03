@@ -79,6 +79,9 @@ enum class ConversationEventType : std::uint8_t {
     ToolCallRequested,
     ResponseDone,
     Error,
+    // 后端要求把底座 LED 灯带切成一个纯色；`led_r` / `led_g` / `led_b`
+    // 携带 8 位 RGB 通道，实际硬件路径由应用层负责。
+    LedColor,
     // Backend warned that the current connection will be terminated soon
     // (Gemini Live `goAway` message — currently fires near the 15-min audio
     // session cap, but the server may send it at any time). The application
@@ -108,6 +111,9 @@ struct ConversationEvent {
     std::shared_ptr<const std::vector<std::int16_t>> audio;  // PCM16 mono chunk
     std::optional<ToolCall> tool_call;
     std::optional<ConversationError> error;
+    std::uint8_t led_r{0};
+    std::uint8_t led_g{0};
+    std::uint8_t led_b{0};
     // `esp_timer_get_time()` at emit, in microseconds. Used by the conv-task
     // to measure event-queue latency (`now_us() - emit_us`) when diagnosing
     // audio pipeline stalls. 0 if the producer didn't set it.
