@@ -78,6 +78,7 @@ constexpr std::uint32_t kThinkingTimeoutMs = 15000;
 // worst legitimate reply length we've seen, short enough to unstick the
 // avatar inside a single user-noticeable pause. See GitHub issue #2.
 constexpr std::uint32_t kSpeakingTimeoutMs = 30000;
+constexpr std::uint8_t kLedModeSolid = 1;
 
 // Local half-duplex state machine. Distinct from conv::ConversationState
 // (which tracks the protocol) because we hold "Speaking" until the speaker
@@ -928,6 +929,22 @@ private:
             } else {
                 ESP_LOGW(kTag, "server error (non-fatal): %s", ev.text.c_str());
             }
+            break;
+        }
+
+        case conv::ConversationEventType::LedColor: {
+            const std::uint32_t color = (static_cast<std::uint32_t>(ev.led_r) << 16) |
+                                        (static_cast<std::uint32_t>(ev.led_g) << 8) |
+                                        static_cast<std::uint32_t>(ev.led_b);
+            state_.led_color.store(color, std::memory_order_relaxed);
+            // XiaoZhi LED 消息是临时状态灯，不是用户设置：这里只写运行时
+            // 状态，下一次 led_task tick 会驱动真实 Board::LedStrip，不写 NVS。
+            state_.led_mode.store(kLedModeSolid, std::memory_order_relaxed);
+            state_.led_brightness.store(255, std::memory_order_relaxed);
+            ESP_LOGI(kTag, "LED 状态灯: r=%u g=%u b=%u",
+                     static_cast<unsigned>(ev.led_r),
+                     static_cast<unsigned>(ev.led_g),
+                     static_cast<unsigned>(ev.led_b));
             break;
         }
         }

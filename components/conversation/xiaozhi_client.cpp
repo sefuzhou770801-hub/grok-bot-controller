@@ -592,6 +592,16 @@ private:
         return cJSON_IsString(v) ? v->valuestring : nullptr;
     }
 
+    static bool json_u8(const cJSON* obj, const char* key, std::uint8_t& out)
+    {
+        const cJSON* v = cJSON_GetObjectItemCaseSensitive(obj, key);
+        if (!cJSON_IsNumber(v) || v->valueint < 0 || v->valueint > 255) {
+            return false;
+        }
+        out = static_cast<std::uint8_t>(v->valueint);
+        return true;
+    }
+
     void parse_control(const char* json, std::size_t len)
     {
         if (rx_log_count_ < 8) {
@@ -617,6 +627,8 @@ private:
             emit_text(ConversationEventType::UserTranscript, json_str(root, "text"));
         } else if (std::strcmp(type, "llm") == 0) {
             emit_text(ConversationEventType::AssistantEmotion, json_str(root, "emotion"));
+        } else if (std::strcmp(type, "led") == 0) {
+            handle_led(root);
         } else if (std::strcmp(type, "tts") == 0) {
             handle_tts(root);
         } else if (std::strcmp(type, "system") == 0 || std::strcmp(type, "alert") == 0) {
@@ -624,6 +636,26 @@ private:
                      json_str(root, "message") ? json_str(root, "message") : "");
         }
         cJSON_Delete(root);
+    }
+
+    void handle_led(const cJSON* root)
+    {
+        std::uint8_t r = 0;
+        std::uint8_t g = 0;
+        std::uint8_t b = 0;
+        if (!json_u8(root, "r", r) || !json_u8(root, "g", g) || !json_u8(root, "b", b)) {
+            ESP_LOGW(kTag, "LED 控制消息无效；需要 type=led 且 r/g/b 在 0..255 内");
+            return;
+        }
+
+        ConversationEvent ev{};
+        ev.type = ConversationEventType::LedColor;
+        ev.led_r = r;
+        ev.led_g = g;
+        ev.led_b = b;
+        emit(ev);
+        ESP_LOGI(kTag, "LED 控制消息: r=%u g=%u b=%u",
+                 static_cast<unsigned>(r), static_cast<unsigned>(g), static_cast<unsigned>(b));
     }
 
     void handle_server_hello(const cJSON* root)
