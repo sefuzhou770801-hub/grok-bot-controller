@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -35,6 +36,11 @@ constexpr std::int32_t kScale = 1;
 constexpr std::uint32_t kDefaultBalloonHoldMs = 3500;
 constexpr std::uint32_t kLoaderStackBytes = 4096;
 constexpr UBaseType_t kLoaderPriority = tskIDLE_PRIORITY + 1;
+constexpr std::size_t kMaxFrameCacheBytes = 300 * 200 * sizeof(std::uint16_t);
+constexpr float kBreathPeriodMs = 4000.0f;
+constexpr float kBreathAmplitudePx = 1.5f;
+constexpr float kTwoPi = 6.28318530717958647692f;
+static_assert(kScale == 1, "frame cache currently stores one RGB565 pixel per source pixel");
 
 struct Animation {
     const char* face;
@@ -390,15 +396,11 @@ public:
         }
         update_frame_index(now_ms);
         update_balloon(now_ms);
-        if (!frame_dirty_) {
-            return;
-        }
 
         canvas.begin_frame(scene_fill_rgb565_for_y(0));
         draw_scene(canvas);
-        draw_current_frame(canvas);
+        draw_current_frame(now_ms, canvas);
         draw_balloon(canvas);
-        frame_dirty_ = false;
     }
 
 private:
@@ -759,95 +761,60 @@ private:
         return read_le32(asset_.frame_offsets + static_cast<std::size_t>(index) * sizeof(std::uint32_t));
     }
 
-    void draw_scaled_run(avatar::RichCanvas& canvas, std::uint16_t value, std::uint32_t src_index,
-                         std::uint32_t count) const
+    std::int32_t frame_left() const
     {
-        const std::int32_t scaled_w = static_cast<std::int32_t>(asset_.width) * kScale;
-        const std::int32_t scaled_h = static_cast<std::int32_t>(asset_.height) * kScale;
-        const std::int32_t left = (width_ - scaled_w) / 2;
-        const std::int32_t top = height_ + static_cast<std::int32_t>(asset_.y_offset) - scaled_h;
-
-        std::uint32_t remaining = count;
-        std::uint32_t index = src_index;
-        while (remaining > 0) {
-            const std::uint32_t src_y = index / asset_.width;
-            const std::uint32_t src_x = index - src_y * asset_.width;
-            const std::uint32_t chunk = std::min<std::uint32_t>(remaining, asset_.width - src_x);
-
-            const std::int32_t x0 = left + static_cast<std::int32_t>(src_x) * kScale;
-            const std::int32_t y0 = top + static_cast<std::int32_t>(src_y) * kScale;
-            const std::int32_t x1 = x0 + static_cast<std::int32_t>(chunk) * kScale;
-            const std::int32_t y1 = y0 + kScale;
-            const std::int32_t clipped_x0 = std::max<std::int32_t>(0, x0);
-            const std::int32_t clipped_y0 = std::max<std::int32_t>(0, y0);
-            const std::int32_t clipped_x1 = std::min<std::int32_t>(width_, x1);
-            const std::int32_t clipped_y1 = std::min<std::int32_t>(height_, y1);
-            if (clipped_x1 > clipped_x0 && clipped_y1 > clipped_y0) {
-                canvas.fillRect(clipped_x0, clipped_y0, clipped_x1 - clipped_x0, clipped_y1 - clipped_y0, value);
-            }
-
-            index += chunk;
-            remaining -= chunk;
-        }
+        return (width_ - static_cast<std::int32_t>(asset_.width) * kScale) / 2;
     }
 
-    void draw_direct_run(avatar::RichCanvas& canvas, std::uint16_t value, std::uint32_t src_index,
-                         std::uint32_t count) const
+    std::int32_t frame_top() const
     {
-        const std::int32_t left = (width_ - static_cast<std::int32_t>(asset_.width)) / 2;
-        const std::int32_t top = height_ + static_cast<std::int32_t>(asset_.y_offset) -
-                                 static_cast<std::int32_t>(asset_.height);
-
-        std::uint32_t remaining = count;
-        std::uint32_t index = src_index;
-        while (remaining > 0) {
-            const std::uint32_t src_y = index / asset_.width;
-            const std::uint32_t src_x = index - src_y * asset_.width;
-            const std::uint32_t chunk = std::min<std::uint32_t>(remaining, asset_.width - src_x);
-
-            const std::int32_t x0 = left + static_cast<std::int32_t>(src_x);
-            const std::int32_t y0 = top + static_cast<std::int32_t>(src_y);
-            const std::int32_t x1 = x0 + static_cast<std::int32_t>(chunk);
-            const std::int32_t y1 = y0 + 1;
-            const std::int32_t clipped_x0 = std::max<std::int32_t>(0, x0);
-            const std::int32_t clipped_y0 = std::max<std::int32_t>(0, y0);
-            const std::int32_t clipped_x1 = std::min<std::int32_t>(width_, x1);
-            const std::int32_t clipped_y1 = std::min<std::int32_t>(height_, y1);
-            if (clipped_x1 > clipped_x0 && clipped_y1 > clipped_y0) {
-                canvas.fillRect(clipped_x0, clipped_y0, clipped_x1 - clipped_x0, clipped_y1 - clipped_y0, value);
-            }
-
-            index += chunk;
-            remaining -= chunk;
-        }
+        return height_ + static_cast<std::int32_t>(asset_.y_offset) -
+               static_cast<std::int32_t>(asset_.height) * kScale;
     }
 
-    void draw_run(avatar::RichCanvas& canvas, std::uint16_t value, std::uint32_t src_index,
-                  std::uint32_t count) const
+    std::int32_t breath_offset(std::uint32_t now_ms) const
     {
-        if constexpr (kScale == 1) {
-            draw_direct_run(canvas, value, src_index, count);
-        } else {
-            draw_scaled_run(canvas, value, src_index, count);
-        }
+        const float phase = (static_cast<float>(now_ms % static_cast<std::uint32_t>(kBreathPeriodMs)) * kTwoPi) /
+                            kBreathPeriodMs;
+        return static_cast<std::int32_t>(std::lround(std::sin(phase) * kBreathAmplitudePx));
     }
 
-    void draw_current_frame(avatar::RichCanvas& canvas) const
+    bool decode_current_frame_to_cache()
     {
         if (asset_.frame_count == 0 || frame_index_ >= asset_.frame_count) {
-            return;
+            return false;
         }
+        const std::uint32_t pixel_count = static_cast<std::uint32_t>(asset_.width) * asset_.height;
+        const std::size_t cache_bytes = static_cast<std::size_t>(pixel_count) * sizeof(std::uint16_t);
+        if (cache_bytes == 0 || cache_bytes > kMaxFrameCacheBytes) {
+            ESP_LOGE(kTag, "frame cache size bad: %s size=%u", asset_.animation->asset_name,
+                     static_cast<unsigned>(cache_bytes));
+            return false;
+        }
+        if (!frame_cache_.ensure(cache_bytes, MALLOC_CAP_SPIRAM)) {
+            ESP_LOGE(kTag, "frame cache alloc failed: %s size=%u", asset_.animation->asset_name,
+                     static_cast<unsigned>(cache_bytes));
+            return false;
+        }
+
+        std::uint16_t* pixels = frame_cache_.as<std::uint16_t>();
+        const std::int32_t top = frame_top();
+        for (std::uint16_t y = 0; y < asset_.height; ++y) {
+            const std::int32_t scene_y = std::clamp<std::int32_t>(top + static_cast<std::int32_t>(y), 0, height_ - 1);
+            std::fill_n(pixels + static_cast<std::size_t>(y) * asset_.width, asset_.width,
+                        scene_fill_rgb565_for_y(scene_y));
+        }
+
         const std::uint32_t start_word = frame_offset(frame_index_);
         const std::uint32_t end_word = frame_offset(static_cast<std::uint16_t>(frame_index_ + 1));
-        if (start_word >= asset_.rle_word_count || end_word > asset_.rle_word_count || start_word >= end_word) {
+        if (start_word > end_word || end_word > asset_.rle_word_count) {
             ESP_LOGE(kTag, "frame offset bad: %s frame=%u", asset_.animation->asset_name,
                      static_cast<unsigned>(frame_index_));
-            return;
+            return false;
         }
 
         const std::uint8_t* rle = asset_.rle_data + static_cast<std::size_t>(start_word) * sizeof(std::uint16_t);
         const std::uint8_t* rle_end = asset_.rle_data + static_cast<std::size_t>(end_word) * sizeof(std::uint16_t);
-        const std::uint32_t pixel_count = static_cast<std::uint32_t>(asset_.width) * asset_.height;
         std::uint32_t src_index = 0;
         while (src_index < pixel_count && rle + 3 < rle_end) {
             const std::uint16_t value = read_le16(rle);
@@ -855,10 +822,25 @@ private:
             rle += sizeof(std::uint16_t) * 2;
             const std::uint32_t count = std::min<std::uint32_t>(raw_count, pixel_count - src_index);
             if (value != asset_.transparent_key && count > 0) {
-                draw_run(canvas, value, src_index, count);
+                std::fill_n(pixels + src_index, count, value);
             }
             src_index += count;
         }
+        frame_dirty_ = false;
+        return true;
+    }
+
+    void draw_current_frame(std::uint32_t now_ms, avatar::RichCanvas& canvas)
+    {
+        if (frame_dirty_ && !decode_current_frame_to_cache()) {
+            return;
+        }
+        if (frame_cache_.data() == nullptr || asset_.frame_count == 0 || frame_index_ >= asset_.frame_count) {
+            return;
+        }
+        canvas.pushImage(frame_left(), frame_top() + breath_offset(now_ms), asset_.width * kScale,
+                         asset_.height * kScale,
+                         frame_cache_.as<const std::uint16_t>());
     }
 
     void draw_balloon(avatar::RichCanvas& canvas)
@@ -889,6 +871,7 @@ private:
     bool ready_ = false;
     bool spiffs_registered_ = false;
     HeapBuffer asset_buffers_[2];
+    HeapBuffer frame_cache_;
     AssetView asset_{};
     std::atomic<std::uint8_t> active_buffer_{0};
     AssetView pending_asset_{};

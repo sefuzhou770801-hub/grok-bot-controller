@@ -90,6 +90,11 @@ public:
         sprite_.setClipRect(x, y, w, h);
     }
     void clearClipRect() override { sprite_.clearClipRect(); }
+    void pushImage(std::int32_t x, std::int32_t y, std::int32_t w, std::int32_t h,
+                   const std::uint16_t* data) override
+    {
+        sprite_.pushImage(x, y, w, h, data);
+    }
 
 private:
     M5GFX& panel_;
@@ -229,6 +234,11 @@ public:
         active().setClipRect(x - ox_, y - oy_, w, h);
     }
     void clearClipRect() override { active().clearClipRect(); }
+    void pushImage(std::int32_t x, std::int32_t y, std::int32_t w, std::int32_t h,
+                   const std::uint16_t* data) override
+    {
+        active().pushImage(x - ox_, y - oy_, w, h, data);
+    }
 
 private:
     lgfx::LGFXBase& active()
