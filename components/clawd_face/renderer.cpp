@@ -10,6 +10,7 @@
 #include "clawd_face/renderer.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -19,6 +20,9 @@
 #include <esp_heap_caps.h>
 #include <esp_log.h>
 #include <esp_spiffs.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/task.h>
 
 namespace stackchan::clawd_face {
 
@@ -29,6 +33,8 @@ constexpr const char* kBasePath = "/clawd";
 constexpr const char* kStorageLabel = "storage";
 constexpr std::int32_t kScale = 1;
 constexpr std::uint32_t kDefaultBalloonHoldMs = 3500;
+constexpr std::uint32_t kLoaderStackBytes = 4096;
+constexpr UBaseType_t kLoaderPriority = tskIDLE_PRIORITY + 1;
 
 struct Animation {
     const char* face;
@@ -78,6 +84,11 @@ struct AssetView {
     std::uint32_t rle_word_count = 0;
     const std::uint8_t* frame_offsets = nullptr;
     const std::uint8_t* rle_data = nullptr;
+};
+
+struct LoadRequest {
+    const Animation* animation = nullptr;
+    std::uint32_t sequence = 0;
 };
 
 class HeapBuffer {
@@ -298,6 +309,7 @@ class Renderer::Impl {
 public:
     ~Impl()
     {
+        stop_loader_task();
         if (spiffs_registered_) {
             esp_vfs_spiffs_unregister(kStorageLabel);
         }
@@ -314,7 +326,10 @@ public:
         if (!mount_assets()) {
             return false;
         }
-        if (!switch_face("idle", 0)) {
+        if (!switch_face_sync("idle", 0, 0)) {
+            return false;
+        }
+        if (!start_loader_task()) {
             return false;
         }
         ready_ = true;
@@ -325,7 +340,7 @@ public:
 
     void set_expression(avatar::Expression expression) noexcept
     {
-        desired_face_ = face_for_expression(expression);
+        desired_face_.store(face_for_expression(expression), std::memory_order_release);
     }
 
     void set_mouth_open(float ratio) noexcept
@@ -367,10 +382,11 @@ public:
         if (!ready_) {
             return;
         }
-        if (std::strcmp(current_face_, desired_face_) != 0) {
-            if (!switch_face(desired_face_, now_ms)) {
-                switch_face("idle", now_ms);
-            }
+        commit_ready_asset(now_ms);
+
+        const char* desired_face = desired_face_.load(std::memory_order_acquire);
+        if (std::strcmp(current_face_, desired_face) != 0) {
+            request_face_load(desired_face);
         }
         update_frame_index(now_ms);
         update_balloon(now_ms);
@@ -411,7 +427,7 @@ private:
         return true;
     }
 
-    bool read_asset_file(const Animation& animation)
+    bool read_asset_file(const Animation& animation, HeapBuffer& buffer)
     {
         const std::string path = std::string{kBasePath} + "/" + animation.asset_name;
         FILE* file = std::fopen(path.c_str(), "rb");
@@ -432,12 +448,12 @@ private:
         }
         std::rewind(file);
 
-        if (!asset_buffer_.ensure(static_cast<std::size_t>(size), MALLOC_CAP_SPIRAM)) {
+        if (!buffer.ensure(static_cast<std::size_t>(size), MALLOC_CAP_SPIRAM)) {
             ESP_LOGE(kTag, "asset buffer alloc failed: %s size=%ld", animation.asset_name, size);
             std::fclose(file);
             return false;
         }
-        const std::size_t read = std::fread(asset_buffer_.data(), 1, static_cast<std::size_t>(size), file);
+        const std::size_t read = std::fread(buffer.data(), 1, static_cast<std::size_t>(size), file);
         std::fclose(file);
         if (read != static_cast<std::size_t>(size)) {
             ESP_LOGE(kTag, "asset read short: %s read=%u size=%ld", animation.asset_name, static_cast<unsigned>(read),
@@ -447,7 +463,15 @@ private:
         return true;
     }
 
-    bool switch_face(const char* face, std::uint32_t now_ms)
+    bool load_asset_into_buffer(const Animation& animation, HeapBuffer& buffer, AssetView& out)
+    {
+        if (!read_asset_file(animation, buffer)) {
+            return false;
+        }
+        return parse_asset(buffer.as<const std::uint8_t>(), buffer.size(), animation, out);
+    }
+
+    bool switch_face_sync(const char* face, std::uint32_t now_ms, std::uint8_t buffer_index)
     {
         const Animation* animation = animation_for_face(face);
         if (animation == nullptr) {
@@ -457,22 +481,192 @@ private:
                 return false;
             }
         }
-        if (!read_asset_file(*animation)) {
-            return false;
-        }
         AssetView next{};
-        if (!parse_asset(asset_buffer_.as<const std::uint8_t>(), asset_buffer_.size(), *animation, next)) {
+        if (!load_asset_into_buffer(*animation, asset_buffers_[buffer_index], next)) {
             return false;
         }
         asset_ = next;
+        active_buffer_.store(buffer_index, std::memory_order_release);
         current_face_ = animation->face;
-        desired_face_ = animation->face;
+        desired_face_.store(animation->face, std::memory_order_release);
         frame_index_ = 0;
         next_frame_ms_ = now_ms + asset_.frame_ms;
         frame_dirty_ = true;
         ESP_LOGI(kTag, "face=%s asset=%s frames=%u size=%ux%u frame_ms=%u", current_face_,
                  animation->asset_name, static_cast<unsigned>(asset_.frame_count), static_cast<unsigned>(asset_.width),
                  static_cast<unsigned>(asset_.height), static_cast<unsigned>(asset_.frame_ms));
+        return true;
+    }
+
+    bool start_loader_task()
+    {
+        load_queue_ = xQueueCreate(1, sizeof(LoadRequest));
+        if (load_queue_ == nullptr) {
+            ESP_LOGE(kTag, "face loader queue create failed");
+            return false;
+        }
+        stop_loader_.store(false, std::memory_order_release);
+        loader_running_.store(true, std::memory_order_release);
+        if (xTaskCreate(&Impl::loader_task_entry, "clawd_face_load", kLoaderStackBytes, this, kLoaderPriority,
+                        &loader_task_) != pdPASS) {
+            ESP_LOGE(kTag, "face loader task create failed");
+            loader_running_.store(false, std::memory_order_release);
+            vQueueDelete(load_queue_);
+            load_queue_ = nullptr;
+            return false;
+        }
+        return true;
+    }
+
+    void stop_loader_task()
+    {
+        if (load_queue_ == nullptr) {
+            return;
+        }
+        stop_loader_.store(true, std::memory_order_release);
+        LoadRequest stop{};
+        xQueueOverwrite(load_queue_, &stop);
+        for (int i = 0; i < 20 && loader_running_.load(std::memory_order_acquire); ++i) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+        if (loader_running_.load(std::memory_order_acquire) && loader_task_ != nullptr) {
+            vTaskDelete(loader_task_);
+            loader_running_.store(false, std::memory_order_release);
+        }
+        loader_task_ = nullptr;
+        vQueueDelete(load_queue_);
+        load_queue_ = nullptr;
+    }
+
+    static void loader_task_entry(void* arg)
+    {
+        static_cast<Impl*>(arg)->loader_task();
+    }
+
+    void loader_task()
+    {
+        LoadRequest request{};
+        while (!stop_loader_.load(std::memory_order_acquire)) {
+            if (xQueueReceive(load_queue_, &request, portMAX_DELAY) != pdTRUE) {
+                continue;
+            }
+            LoadRequest latest = request;
+            while (xQueueReceive(load_queue_, &latest, 0) == pdTRUE) {
+                request = latest;
+            }
+            if (stop_loader_.load(std::memory_order_acquire) || request.animation == nullptr) {
+                break;
+            }
+
+            while (!stop_loader_.load(std::memory_order_acquire) &&
+                   pending_asset_ready_.load(std::memory_order_acquire)) {
+                vTaskDelay(pdMS_TO_TICKS(1));
+            }
+            if (stop_loader_.load(std::memory_order_acquire)) {
+                break;
+            }
+
+            const std::uint8_t buffer_index =
+                active_buffer_.load(std::memory_order_acquire) == 0 ? static_cast<std::uint8_t>(1)
+                                                                    : static_cast<std::uint8_t>(0);
+            AssetView loaded{};
+            if (!load_asset_into_buffer(*request.animation, asset_buffers_[buffer_index], loaded)) {
+                clear_requested_face(request);
+                continue;
+            }
+            if (requested_sequence_.load(std::memory_order_acquire) != request.sequence) {
+                continue;
+            }
+
+            pending_asset_ = loaded;
+            pending_buffer_ = buffer_index;
+            pending_sequence_ = request.sequence;
+            pending_asset_ready_.store(true, std::memory_order_release);
+        }
+        loader_running_.store(false, std::memory_order_release);
+        vTaskDelete(nullptr);
+    }
+
+    void clear_requested_face(const LoadRequest& request)
+    {
+        if (requested_sequence_.load(std::memory_order_acquire) != request.sequence) {
+            return;
+        }
+        requested_animation_.store(nullptr, std::memory_order_release);
+        const char* desired_face = desired_face_.load(std::memory_order_acquire);
+        if (request.animation != nullptr && std::strcmp(desired_face, request.animation->face) == 0) {
+            desired_face_.store("idle", std::memory_order_release);
+        }
+    }
+
+    void clear_requested_face_if_current(std::uint32_t sequence)
+    {
+        if (requested_sequence_.load(std::memory_order_acquire) == sequence) {
+            requested_animation_.store(nullptr, std::memory_order_release);
+        }
+    }
+
+    void commit_ready_asset(std::uint32_t now_ms)
+    {
+        if (!pending_asset_ready_.load(std::memory_order_acquire)) {
+            return;
+        }
+
+        const AssetView next = pending_asset_;
+        const std::uint8_t buffer_index = pending_buffer_;
+        const std::uint32_t sequence = pending_sequence_;
+
+        if (next.animation == nullptr ||
+            std::strcmp(next.animation->face, desired_face_.load(std::memory_order_acquire)) != 0) {
+            pending_asset_ready_.store(false, std::memory_order_release);
+            clear_requested_face_if_current(sequence);
+            return;
+        }
+
+        asset_ = next;
+        active_buffer_.store(buffer_index, std::memory_order_release);
+        current_face_ = next.animation->face;
+        frame_index_ = 0;
+        next_frame_ms_ = now_ms + asset_.frame_ms;
+        frame_dirty_ = true;
+        clear_requested_face_if_current(sequence);
+        pending_asset_ready_.store(false, std::memory_order_release);
+        ESP_LOGI(kTag, "face=%s asset=%s frames=%u size=%ux%u frame_ms=%u", current_face_,
+                 next.animation->asset_name, static_cast<unsigned>(asset_.frame_count),
+                 static_cast<unsigned>(asset_.width), static_cast<unsigned>(asset_.height),
+                 static_cast<unsigned>(asset_.frame_ms));
+    }
+
+    bool request_face_load(const char* face)
+    {
+        const Animation* animation = animation_for_face(face);
+        if (animation == nullptr) {
+            ESP_LOGW(kTag, "unknown face '%s', fallback to idle", face == nullptr ? "" : face);
+            animation = animation_for_face("idle");
+            if (animation == nullptr) {
+                return false;
+            }
+            desired_face_.store(animation->face, std::memory_order_release);
+        }
+        if (std::strcmp(current_face_, animation->face) == 0) {
+            desired_face_.store(animation->face, std::memory_order_release);
+            return true;
+        }
+        if (requested_animation_.load(std::memory_order_acquire) == animation) {
+            return true;
+        }
+        if (load_queue_ == nullptr) {
+            return false;
+        }
+
+        const std::uint32_t sequence = requested_sequence_.fetch_add(1, std::memory_order_acq_rel) + 1;
+        requested_animation_.store(animation, std::memory_order_release);
+        LoadRequest request{.animation = animation, .sequence = sequence};
+        if (xQueueOverwrite(load_queue_, &request) != pdPASS) {
+            requested_animation_.store(nullptr, std::memory_order_release);
+            ESP_LOGE(kTag, "face load request failed: %s", animation->face);
+            return false;
+        }
         return true;
     }
 
@@ -694,10 +888,21 @@ private:
     std::int32_t height_ = 0;
     bool ready_ = false;
     bool spiffs_registered_ = false;
-    HeapBuffer asset_buffer_;
+    HeapBuffer asset_buffers_[2];
     AssetView asset_{};
+    std::atomic<std::uint8_t> active_buffer_{0};
+    AssetView pending_asset_{};
+    std::uint8_t pending_buffer_ = 0;
+    std::uint32_t pending_sequence_ = 0;
+    std::atomic<bool> pending_asset_ready_{false};
     const char* current_face_ = "idle";
-    const char* desired_face_ = "idle";
+    std::atomic<const char*> desired_face_{"idle"};
+    QueueHandle_t load_queue_ = nullptr;
+    TaskHandle_t loader_task_ = nullptr;
+    std::atomic<bool> stop_loader_{false};
+    std::atomic<bool> loader_running_{false};
+    std::atomic<const Animation*> requested_animation_{nullptr};
+    std::atomic<std::uint32_t> requested_sequence_{0};
     std::uint16_t frame_index_ = 0;
     std::uint32_t next_frame_ms_ = 0;
     bool frame_dirty_ = true;
