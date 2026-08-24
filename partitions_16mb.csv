@@ -9,8 +9,9 @@ otadata,  data, ota,     0xd000,   0x2000,
 phy_init, data, phy,     0xf000,   0x1000,
 ota_0,    app,  ota_0,   0x10000,  0x400000,
 ota_1,    app,  ota_1,   0x410000, 0x400000,
-storage,  data, spiffs,  0x810000, 0x100000,
-# HMM 合成の .htsvoice 置き場 (raw、先頭に hmm_voice のヘッダ)
-voice,    data, spiffs,  0x910000, 0x400000,
-# [ASR Phase0] esp-sr WakeNet/AFE モデル (camera off の cores3-asr 用)
-model,    data, spiffs,  0xd10000, 0x2e0000,
+# 高清 clawd RLE 约 5 MB，1 MB storage 装不下。HMM voice 分区让给表情；
+# 日语 TTS 不在本分支范围，没有 voice 分区时 HMM 走既有回退。
+storage,  data, spiffs,  0x810000, 0x600000,
+# [ASR Phase0] esp-sr WakeNet/AFE 模型。当前日语 wn9l 约 287 KB，
+# 预留 ~1.9 MB 给后续中文 MultiNet 或定制 WakeNet。
+model,    data, spiffs,  0xe10000, 0x1e0000,
