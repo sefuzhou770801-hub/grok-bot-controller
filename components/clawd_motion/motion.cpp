@@ -211,4 +211,15 @@ Pose idle_pose(float current_yaw_deg, float current_pitch_deg, Limits limits,
     };
 }
 
+std::array<ServoCommand, kNadenadeWobbleStepCount> nadenade_wobble_steps() noexcept
+{
+    std::array<ServoCommand, kNadenadeWobbleStepCount> steps{};
+    for (int i = 0; i < kNadenadeWobbleRounds; ++i) {
+        const std::size_t base = static_cast<std::size_t>(i) * 2;
+        steps[base] = ServoCommand{-kNadenadeWobbleDeg, kNadenadeWobbleSpeed};
+        steps[base + 1] = ServoCommand{kNadenadeWobbleDeg, kNadenadeWobbleSpeed};
+    }
+    return steps;
+}
+
 } // namespace stackchan::clawd_motion

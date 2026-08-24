@@ -532,15 +532,15 @@ constexpr const char* kTag = "stackchan";
                 // external source (ESP-NOW remote) owns the head; still show
                 // the happy face + balloon above.
                 if (!external_servo_control) {
-                    g_state->servo.speed_override.store(800, std::memory_order_relaxed); // ~120°/s
-                    constexpr float kWobbleDeg = 8.0f;
+                    // speed_override 单次消费：每一段目标变化前都重新写入。
                     constexpr std::uint32_t kHalfPeriodMs = 160;
-                    for (int i = 0; i < 4; ++i) {
-                        g_state->servo.target_yaw_deg.store(-kWobbleDeg, std::memory_order_relaxed);
-                        vTaskDelay(pdMS_TO_TICKS(kHalfPeriodMs));
-                        g_state->servo.target_yaw_deg.store(+kWobbleDeg, std::memory_order_relaxed);
+                    for (const auto& cmd : clawd_motion::nadenade_wobble_steps()) {
+                        g_state->servo.speed_override.store(cmd.speed, std::memory_order_relaxed);
+                        g_state->servo.target_yaw_deg.store(cmd.yaw_deg, std::memory_order_relaxed);
                         vTaskDelay(pdMS_TO_TICKS(kHalfPeriodMs));
                     }
+                    g_state->servo.speed_override.store(clawd_motion::kNadenadeWobbleSpeed,
+                                                        std::memory_order_relaxed);
                     g_state->servo.target_yaw_deg.store(prev_yaw, std::memory_order_relaxed);
                     vTaskDelay(pdMS_TO_TICKS(kHalfPeriodMs));
                     g_state->servo.speed_override.store(0, std::memory_order_relaxed);

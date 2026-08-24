@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace stackchan::clawd_motion {
@@ -57,5 +59,20 @@ Pose head_pet_pose(float base_yaw_deg, float base_pitch_deg, Limits limits,
                    std::uint32_t entropy) noexcept;
 Pose idle_pose(float current_yaw_deg, float current_pitch_deg, Limits limits,
                std::uint32_t entropy) noexcept;
+
+// 抚摸后的四轮左右摆动。speed_override 是单次消费：调用方必须在
+// 每一段目标变化之前重新写入 speed。
+constexpr std::uint16_t kNadenadeWobbleSpeed = 800;
+constexpr float kNadenadeWobbleDeg = 8.0f;
+constexpr int kNadenadeWobbleRounds = 4;
+constexpr std::size_t kNadenadeWobbleStepCount =
+    static_cast<std::size_t>(kNadenadeWobbleRounds) * 2;
+
+struct ServoCommand {
+    float yaw_deg;
+    std::uint16_t speed;
+};
+
+std::array<ServoCommand, kNadenadeWobbleStepCount> nadenade_wobble_steps() noexcept;
 
 } // namespace stackchan::clawd_motion
