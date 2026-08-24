@@ -50,3 +50,4 @@ nvs_backup_*.bin
 components/jtts/test/host/*.wav
 components/jtts/generated/
 components/jtts/test/host/build/
+components/clawd_motion/test/host/build/

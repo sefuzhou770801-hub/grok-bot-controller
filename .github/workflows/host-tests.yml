@@ -78,6 +78,14 @@ jobs:
           cmake --build build-san
           ctest --test-dir build-san --output-on-failure
 
+      - name: clawd_motion host tests
+        working-directory: components/clawd_motion/test/host
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build
+          ctest --test-dir build --output-on-failure
+
       # --- jtts: existing vowel-synthesis test ----------------------------
       # jtts/test/host predates ctest wiring, so drive its executable directly.
       - name: jtts host tests
