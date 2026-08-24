@@ -9,9 +9,6 @@
 #include <esp_crc.h>
 #include <esp_log.h>
 #include <esp_partition.h>
-#if defined(CONFIG_JTTS_ENABLE_HMM)
-#include <esp_ota_ops.h>
-#endif
 
 #include <jtts/jtts.hpp>
 
@@ -32,31 +29,14 @@ struct Header {
 static_assert(sizeof(Header) == 16);
 
 const esp_partition_t* g_part = nullptr;
-bool g_using_ota_slot = false;  // 待機 OTA スロットを流用しているか
 esp_partition_mmap_handle_t g_mmap = 0;
 const void* g_mapped = nullptr;
 std::uint32_t g_mapped_size = 0;
 
-// HMM ボイスの格納先パーティションを決める:
-//   1. 専用 "voice" パーティション (16 MB ボード = partitions_16mb.csv) を優先。
-//   2. 無ければ (8 MB ボード = partitions_8mb.csv, AtomS3R 等) HMM が有効な
-//      ビルドに限り、**待機側 OTA スロット** (esp_ota_get_next_update_partition)
-//      を流用する。実行中アプリとは別スロットなので通常起動には影響しない。
-//      トレードオフ: OTA 更新するとこのスロットにアプリが書かれてボイスは消える
-//      (要再取得)。ロールバック先は「更新前に動いていた側」なので、OTA が
-//      待機側 (=ボイス側) を上書きしてから起動する構造上、ロールバックの安全網
-//      自体は保たれる (消えるのはボイスのみ)。
-//   HMM 無効ビルドでは OTA スロットには触れない (ボイスを置く意味が無く、
-//   誤って待機アプリ イメージを破壊しないため)。
+// 只认名为 "voice" 的独立分区。没有则所有写入拒绝，绝不使用待机 OTA 槽。
 const esp_partition_t* find_partition() {
     if (g_part == nullptr) {
         g_part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, kPart);
-#if defined(CONFIG_JTTS_ENABLE_HMM)
-        if (g_part == nullptr) {
-            g_part = esp_ota_get_next_update_partition(nullptr);
-            g_using_ota_slot = (g_part != nullptr);
-        }
-#endif
     }
     return g_part;
 }
@@ -117,16 +97,10 @@ bool map_and_load(const esp_partition_t* part, std::uint32_t size, bool check_cr
 bool init() {
     const esp_partition_t* part = find_partition();
     if (part == nullptr) {
-        ESP_LOGI(kTag, "no HMM voice storage (no \"%s\" partition / HMM disabled)", kPart);
+        ESP_LOGI(kTag, "no HMM voice storage (no \"%s\" partition)", kPart);
         return false;
     }
-    if (g_using_ota_slot) {
-        ESP_LOGI(kTag, "HMM voice storage: spare OTA slot \"%s\" (%u KiB)", part->label,
-                 static_cast<unsigned>(part->size / 1024));
-    }
     const std::uint32_t size = read_header(part);
-    // OTA スロット流用時、更新直後はここに旧アプリ イメージが入っている
-    // (HVOX マジック無し → size==0)。その場合はボイス未登録として扱う。
     if (size == 0) return false;
     if (!map_and_load(part, size, /*check_crc=*/true)) return false;
     ESP_LOGI(kTag, "HMM voice loaded (%u B)", static_cast<unsigned>(size));
@@ -136,7 +110,7 @@ bool init() {
 const char* store(std::span<const std::uint8_t> data) {
     if (data.empty()) return "empty body";
     const esp_partition_t* part = find_partition();
-    if (part == nullptr) return "HMM voice storage unavailable on this board";
+    if (part == nullptr) return "no voice partition on this board";
     if (data.size() > part->size - sizeof(Header)) return "voice too large for partition";
     // ざっくり検証: .htsvoice は "[GLOBAL]" で始まるテキスト ヘッダを持つ
     if (data.size() < 16 || std::memcmp(data.data(), "[GLOBAL]", 8) != 0) {

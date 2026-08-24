@@ -9,9 +9,9 @@ otadata,  data, ota,     0xd000,   0x2000,
 phy_init, data, phy,     0xf000,   0x1000,
 ota_0,    app,  ota_0,   0x10000,  0x400000,
 ota_1,    app,  ota_1,   0x410000, 0x400000,
-# 高清 clawd RLE 约 5 MB，1 MB storage 装不下。HMM voice 分区让给表情；
-# 日语 TTS 不在本分支范围，没有 voice 分区时 HMM 走既有回退。
-storage,  data, spiffs,  0x810000, 0x600000,
-# [ASR Phase0] esp-sr WakeNet/AFE 模型。当前日语 wn9l 约 287 KB，
-# 预留 ~1.9 MB 给后续中文 MultiNet 或定制 WakeNet。
-model,    data, spiffs,  0xe10000, 0x1e0000,
+# 高清 clawd RLE 约 5.19 MB。storage 从 6 MB 让出 384 KB 给 model。
+# 本板型无独立 voice 分区，HMM 入口必须拒绝写入，不得占用待机 OTA 槽。
+storage,  data, spiffs,  0x810000, 0x5a0000,
+# mn5q8_cn 完整 srmodels.bin 实测 2,203,819 字节，加 128 KB 余量后
+# 64 KB 对齐为 0x240000（余量 155,477 字节）。mn6/mn7 装不下。
+model,    data, spiffs,  0xdb0000, 0x240000,
