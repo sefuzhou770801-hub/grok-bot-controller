@@ -1,11 +1,11 @@
 -- SPDX-FileCopyrightText: 2026 Kenta IDA <fuga@fugafuga.org>
 -- SPDX-License-Identifier: BSL-1.0
 --
--- Grok bot face for the avatar VM DSL. The idle geometry follows the
--- measurements published by the bloub reference project: a perfectly round
--- body, two asymmetric capsule eyes leaning backslash-wise by about 26
--- degrees, and no idle body float. The reference implementation is read-only;
--- this file is an original primitive-based approximation for Stack-chan.
+-- Grok bot face for the avatar VM DSL. Idle geometry follows the bloub
+-- measurements: a perfectly round body and two asymmetric capsule eyes.
+-- Phase 2 adds sparse, irregular motion derived from now_ms: wink vs
+-- binocular blink, a short eye orbit, speech squash, and two sampled
+-- body morphs (egg, triangle) that return to the circle.
 
 ----------------------------------------------------------------------
 -- One triangle in a capsule-eye fan. Blink and expression openness compress
@@ -18,13 +18,12 @@ fn eye_wedge(cx, cy, x1, y1, x2, y2, openness, color)
 end
 
 ----------------------------------------------------------------------
--- Rounded capsule approximated by a ten-sided convex fan. (dx, dy) is a unit
--- vector along the long axis from the upper end to the lower end. Sampling
--- each semicircle at 45-degree intervals keeps the silhouette smooth on the
--- 320x240 CoreS3 panel while remaining cheap for the VM.
+-- Rounded capsule approximated by a ten-sided convex fan. `lid` is the
+-- per-eye open amount (firmware blink, or a DSL wink that holds the
+-- other eye open).
 ----------------------------------------------------------------------
-fn capsule_eye(cx, cy, half_segment, radius, dx, dy, expression_open, color)
-  let openness = clamp(eye_open * expression_open, 0.06, 1)
+fn capsule_eye(cx, cy, half_segment, radius, dx, dy, expression_open, lid, color)
+  let openness = clamp(lid * expression_open, 0.06, 1)
   let px = -dy
   let py = dx
   let diagonal = 0.70710678
@@ -69,81 +68,290 @@ fn capsule_eye(cx, cy, half_segment, radius, dx, dy, expression_open, color)
 end
 
 ----------------------------------------------------------------------
--- Expression mapping. The body never changes shape: each expression is made
--- only by changing capsule proportions, tilt and openness. All six firmware
--- expression values are covered explicitly.
+-- Expression mapping. Body shape is independent; each expression still
+-- only changes capsule proportions, tilt and openness.
 ----------------------------------------------------------------------
-fn grok_eyes(scale, color)
-  let gx = gaze_h * sz(4)
-  let gy = gaze_v * sz(3)
-
-  -- Rest centres and unequal widths come from the measured reference pose.
-  let left_x = tx(181.42) + gx
-  let left_y = ty(76.68) + gy
-  let right_x = tx(222.98) + gx
-  let right_y = ty(66.10) + gy
+fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
+  let gx = gaze_h * sz(4) + ox
+  let gy = gaze_v * sz(3) + oy
+  let left_x = tx(160) + (tx(181.42) - tx(160)) * sx + gx
+  let left_y = ty(120) + (ty(76.68) - ty(120)) * sy + gy
+  let right_x = tx(160) + (tx(222.98) - tx(160)) * sx + gx
+  let right_y = ty(120) + (ty(66.10) - ty(120)) * sy + gy
 
   if expr == HAPPY then
-    -- Short upward arcs: restrained happiness without adding a mouth.
     capsule_eye(left_x, left_y, sz(3.5) * scale, sz(8.5) * scale,
-                -0.258819, 0.965926, 0.62, color)
+                -0.258819, 0.965926, 0.62, left_lid, color)
     capsule_eye(right_x, right_y, sz(3.0) * scale, sz(7.0) * scale,
-                0.258819, 0.965926, 0.62, color)
+                0.258819, 0.965926, 0.62, right_lid, color)
   elif expr == SAD then
-    -- Tops diverge and the eyes lengthen.
-    capsule_eye(left_x, left_y + sz(2), sz(12.0) * scale, sz(7.5) * scale,
-                0.469472, 0.882948, 0.88, color)
-    capsule_eye(right_x, right_y + sz(2), sz(11.0) * scale, sz(6.5) * scale,
-                -0.469472, 0.882948, 0.88, color)
+    capsule_eye(left_x, left_y + sz(2) * sy, sz(12.0) * scale, sz(7.5) * scale,
+                0.469472, 0.882948, 0.88, left_lid, color)
+    capsule_eye(right_x, right_y + sz(2) * sy, sz(11.0) * scale, sz(6.5) * scale,
+                -0.469472, 0.882948, 0.88, right_lid, color)
   elif expr == ANGRY then
-    -- Tops converge; short capsules keep the change readable but controlled.
     capsule_eye(left_x, left_y, sz(5.0) * scale, sz(8.0) * scale,
-                -0.5, 0.866025, 0.72, color)
+                -0.5, 0.866025, 0.72, left_lid, color)
     capsule_eye(right_x, right_y, sz(4.5) * scale, sz(6.7) * scale,
-                0.5, 0.866025, 0.72, color)
+                0.5, 0.866025, 0.72, right_lid, color)
   elif expr == DOUBT then
-    -- One alert eye and one narrowed eye produce the asymmetric doubtful look.
-    capsule_eye(left_x - sz(1), left_y, sz(12.0) * scale, sz(8.5) * scale,
-                0.615661, 0.788011, 1, color)
-    capsule_eye(right_x + sz(1), right_y, sz(4.0) * scale, sz(7.0) * scale,
-                0.173648, 0.984808, 0.48, color)
+    capsule_eye(left_x - sz(1) * sx, left_y, sz(12.0) * scale, sz(8.5) * scale,
+                0.615661, 0.788011, 1, left_lid, color)
+    capsule_eye(right_x + sz(1) * sx, right_y, sz(4.0) * scale, sz(7.0) * scale,
+                0.173648, 0.984808, 0.48, right_lid, color)
   elif expr == SLEEPY then
-    -- Drooping, almost-horizontal slits. Blink still composes on top.
-    capsule_eye(left_x, left_y + sz(4), sz(5.0) * scale, sz(8.0) * scale,
-                0.087156, 0.996195, 0.28, color)
-    capsule_eye(right_x, right_y + sz(4), sz(4.5) * scale, sz(6.7) * scale,
-                0.087156, 0.996195, 0.28, color)
+    capsule_eye(left_x, left_y + sz(4) * sy, sz(5.0) * scale, sz(8.0) * scale,
+                0.087156, 0.996195, 0.28, left_lid, color)
+    capsule_eye(right_x, right_y + sz(4) * sy, sz(4.5) * scale, sz(6.7) * scale,
+                0.087156, 0.996195, 0.28, right_lid, color)
   else
-    -- NEUTRAL, plus a safe fallback for any future enum value. The long axis
-    -- leans 28 degrees from vertical, close to the measured 26-degree pose.
     capsule_eye(left_x, left_y, sz(11.3) * scale, sz(9.3) * scale,
-                0.469472, 0.882948, 1, color)
+                0.469472, 0.882948, 1, left_lid, color)
     capsule_eye(right_x, right_y, sz(10.8) * scale, sz(7.2) * scale,
-                0.469472, 0.882948, 1, color)
+                0.469472, 0.882948, 1, right_lid, color)
   end
 end
 
 ----------------------------------------------------------------------
--- Entry point. RGB565 literals correspond to the requested palette:
+-- Body fan wedge. Radii are already in pixels; (sx, sy) is speech squash.
+----------------------------------------------------------------------
+fn body_wedge(cx, cy, ux1, uy1, r1, ux2, uy2, r2, sx, sy, color)
+  fill_triangle(cx, cy,
+                cx + ux1 * r1 * sx, cy + uy1 * r1 * sy,
+                cx + ux2 * r2 * sx, cy + uy2 * r2 * sy, color)
+end
+
+----------------------------------------------------------------------
+-- Axis-aligned ellipse via scanlines. Used for speech squash so the
+-- resting circle does not become a 16-gon the moment the mouth opens.
+----------------------------------------------------------------------
+fn fill_ellipse(cx, cy, rx, ry, color)
+  let y = -ry
+  while y <= ry do
+    let ny = y / ry
+    let inside = 1 - ny * ny
+    if inside > 0 then
+      let hw = rx * sqrt(inside)
+      fill_rect(cx - hw, cy + y, hw * 2 + 1, 1, color)
+    end
+    y = y + 1
+  end
+end
+
+----------------------------------------------------------------------
+-- Sixteen-sided body. `which` 1 = egg, 2 = triangle; radii sampled from
+-- bloub src/bot/profiles.ts (64 rays, every 4th sample). morph 0 is a
+-- regular 16-gon, used only while the circle is already leaving rest.
+----------------------------------------------------------------------
+fn grok_body(cx, cy, base_r, morph, which, sx, sy, color)
+  let r0 = base_r
+  let r1 = base_r
+  let r2 = base_r
+  let r3 = base_r
+  let r4 = base_r
+  let r5 = base_r
+  let r6 = base_r
+  let r7 = base_r
+  let r8 = base_r
+  let r9 = base_r
+  let r10 = base_r
+  let r11 = base_r
+  let r12 = base_r
+  let r13 = base_r
+  let r14 = base_r
+  let r15 = base_r
+
+  if which == 1 then
+    r0 = base_r * (1 + (0.8369 - 1) * morph)
+    r1 = base_r * (1 + (0.8674 - 1) * morph)
+    r2 = base_r * (1 + (0.9089 - 1) * morph)
+    r3 = base_r * (1 + (0.9445 - 1) * morph)
+    r4 = base_r * (1 + (0.9555 - 1) * morph)
+    r5 = base_r * (1 + (0.9302 - 1) * morph)
+    r6 = base_r * (1 + (0.8852 - 1) * morph)
+    r7 = base_r * (1 + (0.8411 - 1) * morph)
+    r8 = base_r * (1 + (0.8137 - 1) * morph)
+    r9 = base_r * (1 + (0.8178 - 1) * morph)
+    r10 = base_r * (1 + (0.8702 - 1) * morph)
+    r11 = base_r * (1 + (0.9741 - 1) * morph)
+    r12 = base_r * (1 + (1.0481 - 1) * morph)
+    r13 = base_r * (1 + (0.9697 - 1) * morph)
+    r14 = base_r * (1 + (0.8760 - 1) * morph)
+    r15 = base_r * (1 + (0.8337 - 1) * morph)
+  elif which == 2 then
+    r0 = base_r * (1 + (0.7819 - 1) * morph)
+    r1 = base_r * (1 + (1.0223 - 1) * morph)
+    r2 = base_r * (1 + (1.0808 - 1) * morph)
+    r3 = base_r * (1 + (0.8104 - 1) * morph)
+    r4 = base_r * (1 + (0.7151 - 1) * morph)
+    r5 = base_r * (1 + (0.7427 - 1) * morph)
+    r6 = base_r * (1 + (0.9148 - 1) * morph)
+    r7 = base_r * (1 + (1.1109 - 1) * morph)
+    r8 = base_r * (1 + (0.8482 - 1) * morph)
+    r9 = base_r * (1 + (0.7056 - 1) * morph)
+    r10 = base_r * (1 + (0.6938 - 1) * morph)
+    r11 = base_r * (1 + (0.8040 - 1) * morph)
+    r12 = base_r * (1 + (1.0791 - 1) * morph)
+    r13 = base_r * (1 + (0.9779 - 1) * morph)
+    r14 = base_r * (1 + (0.7656 - 1) * morph)
+    r15 = base_r * (1 + (0.7146 - 1) * morph)
+  end
+
+  -- Unit circle, 22.5 deg steps, clockwise, y down.
+  body_wedge(cx, cy, 1, 0, r0, 0.92387953, 0.38268343, r1, sx, sy, color)
+  body_wedge(cx, cy, 0.92387953, 0.38268343, r1, 0.70710678, 0.70710678, r2, sx, sy, color)
+  body_wedge(cx, cy, 0.70710678, 0.70710678, r2, 0.38268343, 0.92387953, r3, sx, sy, color)
+  body_wedge(cx, cy, 0.38268343, 0.92387953, r3, 0, 1, r4, sx, sy, color)
+  body_wedge(cx, cy, 0, 1, r4, -0.38268343, 0.92387953, r5, sx, sy, color)
+  body_wedge(cx, cy, -0.38268343, 0.92387953, r5, -0.70710678, 0.70710678, r6, sx, sy, color)
+  body_wedge(cx, cy, -0.70710678, 0.70710678, r6, -0.92387953, 0.38268343, r7, sx, sy, color)
+  body_wedge(cx, cy, -0.92387953, 0.38268343, r7, -1, 0, r8, sx, sy, color)
+  body_wedge(cx, cy, -1, 0, r8, -0.92387953, -0.38268343, r9, sx, sy, color)
+  body_wedge(cx, cy, -0.92387953, -0.38268343, r9, -0.70710678, -0.70710678, r10, sx, sy, color)
+  body_wedge(cx, cy, -0.70710678, -0.70710678, r10, -0.38268343, -0.92387953, r11, sx, sy, color)
+  body_wedge(cx, cy, -0.38268343, -0.92387953, r11, 0, -1, r12, sx, sy, color)
+  body_wedge(cx, cy, 0, -1, r12, 0.38268343, -0.92387953, r13, sx, sy, color)
+  body_wedge(cx, cy, 0.38268343, -0.92387953, r13, 0.70710678, -0.70710678, r14, sx, sy, color)
+  body_wedge(cx, cy, 0.70710678, -0.70710678, r14, 0.92387953, -0.38268343, r15, sx, sy, color)
+  body_wedge(cx, cy, 0.92387953, -0.38268343, r15, 1, 0, r0, sx, sy, color)
+end
+
+----------------------------------------------------------------------
+-- Entry point. RGB565:
 --   0xF77D ~= #f1efe9 light background
 --   0x0841 ~= #0a0a0c near-black body
 --   0xFFFF  = white eyes
--- Speaking produces only a 1.8% uniform pulse; there is no breath-driven
--- translation or scale, so the resting body stays fixed and perfectly round.
+--
+-- Clocks (incommensurate periods, offsets so t=0 is idle):
+--   blink hijack  9700 ms windows, kinds 0/1/3 both, 2 left wink, 4 right wink
+--   orbit         period 17900 offset 5900 duration 1200
+--   egg           period 25700 offset 3700 duration 1800
+--   triangle      period 33100 offset 15100 duration 1800
+-- Speech: 14% vertical squash, 4% horizontal stretch, no overshoot.
 ----------------------------------------------------------------------
 fn draw()
   let paper = 0xF77D
   let body = 0x0841
   let eyes = 0xFFFF
-  let voice_scale = 1 + clamp(mouth_open, 0, 1) * 0.018
 
-  -- The full-canvas background is redrawn first. The following group encloses
-  -- every possible body/eye position, including gaze and speech excursions,
-  -- so Direct rendering cannot leave stale pixels.
+  let talk = clamp(mouth_open, 0, 1)
+  let sx = 1 + talk * 0.04
+  let sy = 1 - talk * 0.14
+
+  -- Firmware blinks stay binocular in most windows; some windows keep one
+  -- eye open so the same blink reads as a wink. Period 9700 is off the
+  -- other clocks so the pattern does not march.
+  let left_lid = eye_open
+  let right_lid = eye_open
+  let kind = floor((now_ms + 4100) / 9700) % 5
+  if kind == 2 then
+    right_lid = 1
+  elif kind == 4 then
+    left_lid = 1
+  end
+
+  -- Eye orbit: 8-segment circle, amplitude fades in and out.
+  let ox = 0
+  let oy = 0
+  let ot = (now_ms + 5900) % 17900
+  if ot < 1200 then
+    let p = ot / 1200
+    let env = 1
+    if p < 0.12 then
+      env = p / 0.12
+    elif p > 0.88 then
+      env = (1 - p) / 0.12
+    end
+    let amp = sz(12) * env
+    let u = p * 8
+    let seg = floor(u)
+    let f = u - seg
+    let ax = 1
+    let ay = 0
+    let bx = 0.70710678
+    let by = 0.70710678
+    if seg == 1 then
+      ax = 0.70710678
+      ay = 0.70710678
+      bx = 0
+      by = 1
+    elif seg == 2 then
+      ax = 0
+      ay = 1
+      bx = -0.70710678
+      by = 0.70710678
+    elif seg == 3 then
+      ax = -0.70710678
+      ay = 0.70710678
+      bx = -1
+      by = 0
+    elif seg == 4 then
+      ax = -1
+      ay = 0
+      bx = -0.70710678
+      by = -0.70710678
+    elif seg == 5 then
+      ax = -0.70710678
+      ay = -0.70710678
+      bx = 0
+      by = -1
+    elif seg == 6 then
+      ax = 0
+      ay = -1
+      bx = 0.70710678
+      by = -0.70710678
+    elif seg == 7 then
+      ax = 0.70710678
+      ay = -0.70710678
+      bx = 1
+      by = 0
+    end
+    ox = (ax + (bx - ax) * f) * amp
+    oy = (ay + (by - ay) * f) * amp
+  end
+
+  -- Body morph. Egg wins if both windows overlap. One envelope, two clocks.
+  let morph = 0
+  let which = 1
+  let elapsed = -1
+  let et = (now_ms + 3700) % 25700
+  if et < 1800 then
+    elapsed = et
+    which = 1
+  end
+  let tt = (now_ms + 15100) % 33100
+  if elapsed < 0 and tt < 1800 then
+    elapsed = tt
+    which = 2
+  end
+  if elapsed >= 0 then
+    if elapsed < 400 then
+      let u = elapsed / 400
+      morph = u * u * (3 - 2 * u)
+    elif elapsed < 1200 then
+      morph = 1
+    else
+      let u = (1800 - elapsed) / 600
+      morph = u * u * (3 - 2 * u)
+    end
+  end
+
   fill_rect(0, 0, canvas_w, canvas_h, paper)
-  begin_group(tx(52), ty(12), sz(216), sz(216))
-  fill_rect(tx(52), ty(12), sz(216), sz(216), paper)
-  fill_circle(tx(160), ty(120), sz(100) * voice_scale, body)
-  grok_eyes(voice_scale, eyes)
+  begin_group(0, 0, canvas_w, canvas_h)
+  fill_rect(0, 0, canvas_w, canvas_h, paper)
+
+  let cx = tx(160)
+  let cy = ty(120)
+  let base_r = sz(100)
+  let eye_scale = (sx + sy) / 2
+
+  if morph > 0.02 then
+    grok_body(cx, cy, base_r, morph, which, sx, sy, body)
+  elif talk > 0.05 then
+    fill_ellipse(cx, cy, base_r * sx, base_r * sy, body)
+  else
+    fill_circle(cx, cy, base_r, body)
+  end
+  grok_eyes(eye_scale, eyes, ox, oy, left_lid, right_lid, sx, sy)
   end_group()
 end
