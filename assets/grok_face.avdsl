@@ -1,0 +1,149 @@
+-- SPDX-FileCopyrightText: 2026 Kenta IDA <fuga@fugafuga.org>
+-- SPDX-License-Identifier: BSL-1.0
+--
+-- Grok bot face for the avatar VM DSL. The idle geometry follows the
+-- measurements published by the bloub reference project: a perfectly round
+-- body, two asymmetric capsule eyes leaning backslash-wise by about 26
+-- degrees, and no idle body float. The reference implementation is read-only;
+-- this file is an original primitive-based approximation for Stack-chan.
+
+----------------------------------------------------------------------
+-- One triangle in a capsule-eye fan. Blink and expression openness compress
+-- only screen-space Y around the eye centre, matching the measured blink.
+----------------------------------------------------------------------
+fn eye_wedge(cx, cy, x1, y1, x2, y2, openness, color)
+  let sy1 = cy + (y1 - cy) * openness
+  let sy2 = cy + (y2 - cy) * openness
+  fill_triangle(cx, cy, x1, sy1, x2, sy2, color)
+end
+
+----------------------------------------------------------------------
+-- Rounded capsule approximated by a ten-sided convex fan. (dx, dy) is a unit
+-- vector along the long axis from the upper end to the lower end. Sampling
+-- each semicircle at 45-degree intervals keeps the silhouette smooth on the
+-- 320x240 CoreS3 panel while remaining cheap for the VM.
+----------------------------------------------------------------------
+fn capsule_eye(cx, cy, half_segment, radius, dx, dy, expression_open, color)
+  let openness = clamp(eye_open * expression_open, 0.06, 1)
+  let px = -dy
+  let py = dx
+  let diagonal = 0.70710678
+
+  let txc = cx - dx * half_segment
+  let tyc = cy - dy * half_segment
+  let bxc = cx + dx * half_segment
+  let byc = cy + dy * half_segment
+
+  let x0 = txc + px * radius
+  let y0 = tyc + py * radius
+  let x1 = txc + (px - dx) * radius * diagonal
+  let y1 = tyc + (py - dy) * radius * diagonal
+  let x2 = txc - dx * radius
+  let y2 = tyc - dy * radius
+  let x3 = txc - (px + dx) * radius * diagonal
+  let y3 = tyc - (py + dy) * radius * diagonal
+  let x4 = txc - px * radius
+  let y4 = tyc - py * radius
+
+  let x5 = bxc - px * radius
+  let y5 = byc - py * radius
+  let x6 = bxc + (dx - px) * radius * diagonal
+  let y6 = byc + (dy - py) * radius * diagonal
+  let x7 = bxc + dx * radius
+  let y7 = byc + dy * radius
+  let x8 = bxc + (px + dx) * radius * diagonal
+  let y8 = byc + (py + dy) * radius * diagonal
+  let x9 = bxc + px * radius
+  let y9 = byc + py * radius
+
+  eye_wedge(cx, cy, x0, y0, x1, y1, openness, color)
+  eye_wedge(cx, cy, x1, y1, x2, y2, openness, color)
+  eye_wedge(cx, cy, x2, y2, x3, y3, openness, color)
+  eye_wedge(cx, cy, x3, y3, x4, y4, openness, color)
+  eye_wedge(cx, cy, x4, y4, x5, y5, openness, color)
+  eye_wedge(cx, cy, x5, y5, x6, y6, openness, color)
+  eye_wedge(cx, cy, x6, y6, x7, y7, openness, color)
+  eye_wedge(cx, cy, x7, y7, x8, y8, openness, color)
+  eye_wedge(cx, cy, x8, y8, x9, y9, openness, color)
+  eye_wedge(cx, cy, x9, y9, x0, y0, openness, color)
+end
+
+----------------------------------------------------------------------
+-- Expression mapping. The body never changes shape: each expression is made
+-- only by changing capsule proportions, tilt and openness. All six firmware
+-- expression values are covered explicitly.
+----------------------------------------------------------------------
+fn grok_eyes(scale, color)
+  let gx = gaze_h * sz(4)
+  let gy = gaze_v * sz(3)
+
+  -- Rest centres and unequal widths come from the measured reference pose.
+  let left_x = tx(181.42) + gx
+  let left_y = ty(76.68) + gy
+  let right_x = tx(222.98) + gx
+  let right_y = ty(66.10) + gy
+
+  if expr == HAPPY then
+    -- Short upward arcs: restrained happiness without adding a mouth.
+    capsule_eye(left_x, left_y, sz(3.5) * scale, sz(8.5) * scale,
+                -0.258819, 0.965926, 0.62, color)
+    capsule_eye(right_x, right_y, sz(3.0) * scale, sz(7.0) * scale,
+                0.258819, 0.965926, 0.62, color)
+  elif expr == SAD then
+    -- Tops diverge and the eyes lengthen.
+    capsule_eye(left_x, left_y + sz(2), sz(12.0) * scale, sz(7.5) * scale,
+                0.469472, 0.882948, 0.88, color)
+    capsule_eye(right_x, right_y + sz(2), sz(11.0) * scale, sz(6.5) * scale,
+                -0.469472, 0.882948, 0.88, color)
+  elif expr == ANGRY then
+    -- Tops converge; short capsules keep the change readable but controlled.
+    capsule_eye(left_x, left_y, sz(5.0) * scale, sz(8.0) * scale,
+                -0.5, 0.866025, 0.72, color)
+    capsule_eye(right_x, right_y, sz(4.5) * scale, sz(6.7) * scale,
+                0.5, 0.866025, 0.72, color)
+  elif expr == DOUBT then
+    -- One alert eye and one narrowed eye produce the asymmetric doubtful look.
+    capsule_eye(left_x - sz(1), left_y, sz(12.0) * scale, sz(8.5) * scale,
+                0.615661, 0.788011, 1, color)
+    capsule_eye(right_x + sz(1), right_y, sz(4.0) * scale, sz(7.0) * scale,
+                0.173648, 0.984808, 0.48, color)
+  elif expr == SLEEPY then
+    -- Drooping, almost-horizontal slits. Blink still composes on top.
+    capsule_eye(left_x, left_y + sz(4), sz(5.0) * scale, sz(8.0) * scale,
+                0.087156, 0.996195, 0.28, color)
+    capsule_eye(right_x, right_y + sz(4), sz(4.5) * scale, sz(6.7) * scale,
+                0.087156, 0.996195, 0.28, color)
+  else
+    -- NEUTRAL, plus a safe fallback for any future enum value. The long axis
+    -- leans 28 degrees from vertical, close to the measured 26-degree pose.
+    capsule_eye(left_x, left_y, sz(11.3) * scale, sz(9.3) * scale,
+                0.469472, 0.882948, 1, color)
+    capsule_eye(right_x, right_y, sz(10.8) * scale, sz(7.2) * scale,
+                0.469472, 0.882948, 1, color)
+  end
+end
+
+----------------------------------------------------------------------
+-- Entry point. RGB565 literals correspond to the requested palette:
+--   0xF77D ~= #f1efe9 light background
+--   0x0841 ~= #0a0a0c near-black body
+--   0xFFFF  = white eyes
+-- Speaking produces only a 1.8% uniform pulse; there is no breath-driven
+-- translation or scale, so the resting body stays fixed and perfectly round.
+----------------------------------------------------------------------
+fn draw()
+  let paper = 0xF77D
+  let body = 0x0841
+  let eyes = 0xFFFF
+  let voice_scale = 1 + clamp(mouth_open, 0, 1) * 0.018
+
+  -- The full-canvas background is redrawn first. The following group encloses
+  -- every possible body/eye position, including gaze and speech excursions,
+  -- so Direct rendering cannot leave stale pixels.
+  fill_rect(0, 0, canvas_w, canvas_h, paper)
+  begin_group(tx(52), ty(12), sz(216), sz(216))
+  fill_rect(tx(52), ty(12), sz(216), sz(216), paper)
+  fill_circle(tx(160), ty(120), sz(100) * voice_scale, body)
+  grok_eyes(voice_scale, eyes)
+  end_group()
+end
