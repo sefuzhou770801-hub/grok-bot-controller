@@ -175,20 +175,33 @@ public:
                (static_cast<std::uint64_t>(expression) << 32) | hold_ms;
     }
 
-    // `hold_ms == 0` keeps the overlay until `clear_face_overlay`. The whole
-    // command lands in one store, so a reader can never mix two writers.
-    void request_face_overlay(stackchan::avatar::Expression e, std::uint32_t hold_ms) noexcept {
-        const std::uint8_t seq = ++overlay_seq_counter_;
-        face.overlay_command.store(
-            pack_overlay_command(true, seq, static_cast<std::uint8_t>(e), hold_ms),
-            std::memory_order_release);
+    // `hold_ms == 0` keeps the overlay until a clear. The whole command
+    // lands in one store, so a reader can never mix two writers. Returns the
+    // published word — pass it to clear_face_overlay_if so a stale gesture
+    // can only clear its OWN overlay, never a newer one from another source.
+    std::uint64_t request_face_overlay(stackchan::avatar::Expression e, std::uint32_t hold_ms) noexcept {
+        const auto seq = static_cast<std::uint8_t>(overlay_seq_counter_.fetch_add(1, std::memory_order_relaxed) + 1);
+        const std::uint64_t cmd = pack_overlay_command(true, seq, static_cast<std::uint8_t>(e), hold_ms);
+        face.overlay_command.store(cmd, std::memory_order_release);
         face.activity_seq.fetch_add(1, std::memory_order_relaxed);
+        return cmd;
     }
 
     void clear_face_overlay() noexcept {
-        const std::uint8_t seq = ++overlay_seq_counter_;
-        face.overlay_command.store(pack_overlay_command(false, seq, 0, 0),
-                                   std::memory_order_release);
+        const auto seq = static_cast<std::uint8_t>(overlay_seq_counter_.fetch_add(1, std::memory_order_relaxed) + 1);
+        face.overlay_command.store(pack_overlay_command(false, seq, 0, 0), std::memory_order_release);
+    }
+
+    // Conditional clear: only removes the overlay if it is still exactly the
+    // command this caller published. A newer overlay from another source
+    // survives a stale restore/end-of-gesture path.
+    bool clear_face_overlay_if(std::uint64_t expected) noexcept {
+        if ((expected & kOverlayValidBit) == 0) {
+            return false;
+        }
+        const auto seq = static_cast<std::uint8_t>(overlay_seq_counter_.fetch_add(1, std::memory_order_relaxed) + 1);
+        return face.overlay_command.compare_exchange_strong(expected, pack_overlay_command(false, seq, 0, 0),
+                                                            std::memory_order_release, std::memory_order_relaxed);
     }
 
     void note_face_activity() noexcept {
@@ -482,7 +495,7 @@ public:
 
 private:
     mutable std::mutex balloon_mutex_;
-    std::uint8_t overlay_seq_counter_{0}; // 只被发布方递增；打包进 overlay_command
+    std::atomic<std::uint8_t> overlay_seq_counter_{0}; // 多任务发布方并发递增；打包进 overlay_command
     std::string balloon_text_;
     std::uint32_t balloon_hold_ms_{0};
     BalloonCompletionCallback balloon_callback_{};

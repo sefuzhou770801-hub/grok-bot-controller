@@ -27,3 +27,14 @@ target_include_directories(avatar_test_expression_controller PRIVATE
 )
 target_compile_options(avatar_test_expression_controller PRIVATE -Wall -Wextra)
 add_test(NAME expression_controller COMMAND avatar_test_expression_controller)
+
+# Multi-producer overlay publish tests (SharedState lives in main/).
+add_executable(avatar_test_overlay_publish test_overlay_publish.cpp)
+target_include_directories(avatar_test_overlay_publish PRIVATE
+    ${AVATAR_ROOT}/include
+    ${VM_ROOT}/include
+    ${REPO_ROOT}/main
+)
+target_link_libraries(avatar_test_overlay_publish PRIVATE pthread)
+target_compile_options(avatar_test_overlay_publish PRIVATE -Wall -Wextra)
+add_test(NAME overlay_publish COMMAND avatar_test_overlay_publish)

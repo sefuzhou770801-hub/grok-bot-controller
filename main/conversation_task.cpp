@@ -71,8 +71,11 @@ constexpr std::uint32_t kJitterBufferMs = 300;
 // Mic / speaker I2S handoff settle time (matches the existing audio code).
 constexpr TickType_t kI2sSettle = pdMS_TO_TICKS(20);
 
-// Recover from a stuck "Thinking" (no audio, no tool follow-up) after this long.
-constexpr std::uint32_t kThinkingTimeoutMs = 15000;
+// Last-resort recovery from a genuinely stuck "Thinking" (connection died
+// without an event). Deliberately long: the spec keeps the thinking face for
+// the WHOLE wait (LLM request in flight, tool call running), so this must
+// only fire on failures, never on a slow-but-alive request.
+constexpr std::uint32_t kThinkingTimeoutMs = 60000;
 
 // Recover from a stuck "Speaking" (assistant playback drained but the
 // generationComplete / interrupted / turnComplete event never arrived,

@@ -126,6 +126,7 @@ constexpr const char* kTag = "stackchan";
     };
     bool head_pet_touch_active = false;
     bool head_pet_restore_pending = false;
+    std::uint64_t head_pet_overlay_cmd = 0; // 本任务最近发布的覆盖命令（条件清除凭据）
     float head_pet_prev_yaw = 0.0f;
     float head_pet_prev_pitch = 0.0f;
     std::uint32_t head_pet_restore_at_ms = 0;
@@ -321,7 +322,10 @@ constexpr const char* kTag = "stackchan";
                 g_state->note_face_activity();
             }
             if (intent == Intent::StrokeRestore || intent == Intent::DizzyEnd) {
-                g_state->clear_face_overlay();
+                // 只清本任务（摸头）发布的覆盖；别处的新覆盖不受影响。
+                if (g_state->clear_face_overlay_if(head_pet_overlay_cmd)) {
+                    head_pet_overlay_cmd = 0;
+                }
             } else if (intent == Intent::FlickLeft || intent == Intent::FlickRight) {
                 std::int16_t next = static_cast<std::int16_t>(
                     g_state->face.expression.load(std::memory_order_relaxed)) +
@@ -469,7 +473,7 @@ constexpr const char* kTag = "stackchan";
                 head_pet_restore_pending = false;
                 speech.stop();
 
-                g_state->request_face_overlay(avatar::Expression::Happy, 0);
+                head_pet_overlay_cmd = g_state->request_face_overlay(avatar::Expression::Happy, 0);
                 balloon_in_flight.store(true, std::memory_order_release);
                 g_state->set_balloon_text("摸摸♡", /*hold_ms=*/2200, [] {
                     balloon_in_flight.store(false, std::memory_order_release);
@@ -569,7 +573,9 @@ constexpr const char* kTag = "stackchan";
 
         if (head_pet_restore_pending && now_ms >= head_pet_restore_at_ms) {
             head_pet_restore_pending = false;
-            g_state->clear_face_overlay();
+            if (g_state->clear_face_overlay_if(head_pet_overlay_cmd)) {
+                head_pet_overlay_cmd = 0;
+            }
             g_state->servo.speed_override.store(200, std::memory_order_relaxed);
             g_state->servo.target_yaw_deg.store(head_pet_prev_yaw, std::memory_order_relaxed);
             g_state->servo.target_pitch_deg.store(head_pet_prev_pitch, std::memory_order_relaxed);
