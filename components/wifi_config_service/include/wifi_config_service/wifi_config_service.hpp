@@ -205,7 +205,9 @@ using LtConfigSink = std::function<void(std::string_view json)>;
 void set_lt_config_sink(LtConfigSink sink);
 
 // `POST /mcp/expression` — set avatar face expression.
-//   name ∈ {"neutral","happy","sad","angry","doubt","sleepy"}
+//   name ∈ {"neutral","idle","happy","sad","angry","doubt","sleepy",
+//            "listening","thinking","excited","curious","confused",
+//            "surprised","dizzy","affection"}
 using McpExpressionSink = std::function<void(std::string_view name)>;
 void set_mcp_expression_sink(McpExpressionSink sink);
 

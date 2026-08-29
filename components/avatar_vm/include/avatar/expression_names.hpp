@@ -26,6 +26,7 @@ inline constexpr ExpressionName kExpressionNames[] = {
     {"thinking", Expression::Thinking},   {"excited", Expression::Excited},
     {"curious", Expression::Curious},     {"confused", Expression::Confused},
     {"surprised", Expression::Surprised}, {"dizzy", Expression::Dizzy},
+    {"affection", Expression::Affection},
 };
 
 inline std::optional<Expression> expression_from_name(std::string_view name) noexcept {

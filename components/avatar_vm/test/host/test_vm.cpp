@@ -502,6 +502,7 @@ int main() {
         CHECK(static_cast<int>(Expression::Confused) == 10);
         CHECK(static_cast<int>(Expression::Surprised) == 11);
         CHECK(static_cast<int>(Expression::Dizzy) == 12);
+        CHECK(static_cast<int>(Expression::Affection) == 13);
         CHECK(static_cast<int>(ExprValue::Neutral) == static_cast<int>(Expression::Neutral));
         CHECK(static_cast<int>(ExprValue::Happy) == static_cast<int>(Expression::Happy));
         CHECK(static_cast<int>(ExprValue::Sad) == static_cast<int>(Expression::Sad));
@@ -515,6 +516,7 @@ int main() {
         CHECK(static_cast<int>(ExprValue::Confused) == static_cast<int>(Expression::Confused));
         CHECK(static_cast<int>(ExprValue::Surprised) == static_cast<int>(Expression::Surprised));
         CHECK(static_cast<int>(ExprValue::Dizzy) == static_cast<int>(Expression::Dizzy));
+        CHECK(static_cast<int>(ExprValue::Affection) == static_cast<int>(Expression::Affection));
     }
 
     return avtest::finish("vm");

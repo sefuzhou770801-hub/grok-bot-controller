@@ -10,6 +10,7 @@ namespace stackchan::avatar {
 
 // SharedState stores this as u8. 0-5 are the original six and must not
 // move. KK's Idle is Neutral; the remaining KK faces occupy 6-12.
+// Affection is the stroke face (squinting smile).
 enum class Expression : std::uint8_t {
     Neutral = 0,
     Happy = 1,
@@ -24,8 +25,9 @@ enum class Expression : std::uint8_t {
     Confused = 10,
     Surprised = 11,
     Dizzy = 12,
+    Affection = 13,
 };
 
-inline constexpr std::size_t kExpressionCount = static_cast<std::size_t>(Expression::Dizzy) + 1;
+inline constexpr std::size_t kExpressionCount = static_cast<std::size_t>(Expression::Affection) + 1;
 
 } // namespace stackchan::avatar

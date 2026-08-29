@@ -36,6 +36,7 @@ constexpr float kGrokLhs[kExprCount] = {
     11.5f, // Confused
     6.0f,  // Surprised
     9.0f,  // Dizzy
+    4.2f,  // Affection
 };
 
 bool near(float a, float b) {

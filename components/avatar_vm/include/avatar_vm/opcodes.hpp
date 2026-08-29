@@ -135,6 +135,7 @@ enum class ExprValue : std::uint8_t {
     Confused = 10,
     Surprised = 11,
     Dizzy = 12,
+    Affection = 13,
 };
 
 } // namespace stackchan::avatar_vm

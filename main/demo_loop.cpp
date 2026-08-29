@@ -8,6 +8,7 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <optional>
 
 #include <M5Unified.h>
 #include <esp_log.h>
@@ -22,6 +23,8 @@
 
 #include "avatar/expression.hpp"
 #include "battery.hpp"
+#include "clawd_motion/face_input.hpp"
+#include "face_intent_map.hpp"
 #include "clawd_motion/motion.hpp"
 #include "device_ui.hpp"
 #include "lt_timer.hpp"
@@ -147,24 +150,18 @@ constexpr const char* kTag = "stackchan";
     // clear the balloon so normal demo behaviour resumes.
     bool wifi_warning_active = false;
 
-    // BMI270 shake → randomized expression. Cheap to poll (one I2C read);
-    // the cooldown keeps a single jerk from cascading into rapid-fire
-    // changes. Magnitude threshold is in g-units after subtracting 1 g of
-    // gravity, so it ignores normal handheld motion and only fires on
-    // deliberate flicks of the wrist. Available on any board M5Unified
-    // configured an IMU for (StopWatch's BMI270 in this scope; harmless
-    // no-op on CoreS3 where the IMU isn't initialised — getAccel returns
-    // false and we skip).
-    constexpr float kShakeThresholdG = 1.6f;       // |a| ≥ 1.6 g (≈ 0.6 g jerk)
-    constexpr std::uint32_t kShakeCooldownMs = 800;
-    std::uint32_t next_shake_ms = 0;
+    clawd_motion::FaceInput face_input;
+    face_input.set_screen_center(static_cast<float>(M5.Display.width()) * 0.5f,
+                                 static_cast<float>(M5.Display.height()) * 0.5f);
+    std::optional<std::uint8_t> face_reaction_restore;
+    bool overlay_owns_gesture = false;
 
     for (;;) {
         // Camera session in progress: every In_I2C touch (M5.update's
         // touch/BtnPWR poll, INA226 battery, Si12T nadenade, BMI270 shake)
         // would re-init the I2C controller under the camera's SCCB driver
         // and kill the capture. Idle the whole iteration instead — sessions
-        // are ~1.5 s one-shots, so buttons/touch just miss a beat.
+        // are ~1.5 s one-shots, so buttons/touch/IMU just miss a beat.
         if (g_state->i2c_quiesce.load(std::memory_order_acquire)) {
             vTaskDelay(pdMS_TO_TICKS(50));
             continue;
@@ -204,28 +201,6 @@ constexpr const char* kTag = "stackchan";
             }
         }
 
-        // IMU shake → cycle to a random expression. Runs before the
-        // touch/UI block so a shake during conv idle changes the face
-        // immediately.
-        // A brief haptic confirms the shake actually registered (handy
-        // when the user can't see the avatar on a wrist-worn device).
-        if (now_ms >= next_shake_ms) {
-            float ax = 0, ay = 0, az = 0;
-            if (M5.Imu.getAccel(&ax, &ay, &az)) {
-                const float mag = std::sqrt(ax * ax + ay * ay + az * az);
-                if (mag >= kShakeThresholdG) {
-                    next_shake_ms = now_ms + kShakeCooldownMs;
-                    const int cur = g_state->face.expression.load(std::memory_order_relaxed);
-                    int next = cur;
-                    for (int i = 0; i < 4 && next == cur; ++i) {
-                        next = static_cast<int>(esp_random() % avatar::kExpressionCount);
-                    }
-                    g_state->face.expression.store(next, std::memory_order_relaxed);
-                    ESP_LOGI(kTag, "shake |a|=%.2fg → expression %d", mag, next);
-                    if (g_board != nullptr) (void)g_board->vibrate(60);
-                }
-            }
-        }
         // BtnB (StopWatch Blue / G1) — manual expression cycle with haptic
         // confirmation. wasPressed() is false on boards without BtnB so the
         // check is harmless universally.
@@ -280,67 +255,107 @@ constexpr const char* kTag = "stackchan";
         app::screens::poll_inputs();
         {
             const auto td = M5.Touch.getDetail();
-            // Horizontal flick → next/prev tab. M5Unified emits this on the
-            // release frame after a touch that travelled past the flick
-            // threshold. We treat it independently of the press path so a
-            // press that ends in a flick doesn't also fire the tap action.
+            const bool conv_speaking = g_state->conv.active.load(std::memory_order_relaxed) &&
+                                       !g_state->conv.idle.load(std::memory_order_relaxed);
+            const bool barge_in_armed = g_state->barge_in_enabled.load(std::memory_order_relaxed) && conv_speaking;
+            // Overlay flicks still switch tabs while the UI is shown.
+            // FaceInput only sees leftover motion after that.
             if (td.wasFlicked()) {
                 app::screens::handle_flick(td.distanceX(), td.distanceY());
             }
             if (td.wasPressed()) {
-                // Priority dispatch through the screen stack (AP screen
-                // swallows everything while up; device_ui owns its hot
-                // corners even when closed).
                 const bool consumed = app::screens::handle_tap(td.x, td.y);
-                // A tap no screen consumed, while the assistant is
-                // mid-reply, is a barge-in request: voice input is paused
-                // for the whole turn, so the screen tap is how the user
-                // interrupts. The conversation task consumes this during
-                // playback.
-                if (!consumed &&
-                    g_state->barge_in_enabled.load(std::memory_order_relaxed) &&
-                    g_state->conv.active.load(std::memory_order_relaxed) &&
-                    !g_state->conv.idle.load(std::memory_order_relaxed)) {
+                if (consumed) {
+                    overlay_owns_gesture = true;
+                } else if (barge_in_armed) {
                     g_state->barge_in_request.store(true, std::memory_order_relaxed);
                 }
             }
+            const clawd_motion::Policy face_policy{
+                .expressions_enabled = !conv_speaking,
+                .overlay_owns_panel = overlay_owns_gesture || app::screens::overlay_active(),
+            };
 
-            // StopWatch: while the user keeps a finger pressed in the
-            // outer ring of the 466×466 round panel, bias the avatar's
-            // gaze toward the touch point — the eyes follow the finger
-            // as it slides around the rim. Center / device-UI region
-            // taps are unaffected. saccade keeps running in parallel
-            // (the VM sums saccade + gaze_target), so the eyes wander
-            // naturally around the commanded direction rather than
-            // locking dead-stop. Released → reset to (0, 0) and the
-            // saccade-only behaviour resumes.
-            if (touch_gaze_follow) {
-                constexpr float kCenter = 233.0f;          // 466 / 2
-                constexpr float kOuterR = 233.0f;          // panel edge
-                constexpr float kInnerR = 180.0f;          // ring inner edge
-                constexpr float kGazeGain = 5.0f;          // DSL multiplier
-                                                            // is *3 → 15 px peak
-                bool follow_active = false;
-                if (td.isPressed() && !app::screens::overlay_active()) {
-                    const float dx = static_cast<float>(td.x) - kCenter;
-                    const float dy = static_cast<float>(td.y) - kCenter;
-                    const float r  = std::sqrt(dx * dx + dy * dy);
-                    if (r >= kInnerR && r <= kOuterR) {
-                        // Normalise direction onto the unit circle, then
-                        // amplify by kGazeGain so the offset is visible
-                        // through the VM's gaze * 3 multiplier.
-                        const float inv = 1.0f / r;
-                        g_state->face.gaze_target_h.store(dx * inv * kGazeGain,
-                                                     std::memory_order_relaxed);
-                        g_state->face.gaze_target_v.store(dy * inv * kGazeGain,
-                                                     std::memory_order_relaxed);
-                        follow_active = true;
+            clawd_motion::TouchSample touch{};
+            touch.x = static_cast<std::int16_t>(td.x);
+            touch.y = static_cast<std::int16_t>(td.y);
+            touch.pressed = td.isPressed();
+            touch.was_pressed = td.wasPressed();
+            touch.was_clicked = td.wasClicked();
+            touch.click_count = td.getClickCount();
+            touch.was_hold = td.wasHold();
+            touch.is_moving = td.isFlicking() || td.isDragging();
+            touch.was_flicked = td.wasFlicked();
+            touch.distance_x = static_cast<std::int16_t>(td.distanceX());
+            touch.distance_y = static_cast<std::int16_t>(td.distanceY());
+            touch.now_ms = now_ms;
+
+            clawd_motion::ImuSample imu{};
+            imu.now_ms = now_ms;
+            float ax = 0.0f, ay = 0.0f, az = 0.0f;
+            if (M5.Imu.getAccel(&ax, &ay, &az)) {
+                imu.valid = true;
+                // StopWatch BMI270：官方 demo 把原始 X/Y 对调成屏幕坐标。
+                if (touch_gaze_follow) {
+                    imu.ax = ay;
+                    imu.ay = ax;
+                } else {
+                    imu.ax = ax;
+                    imu.ay = ay;
+                }
+                imu.az = az;
+            }
+
+            const auto face = face_input.tick(touch, imu, face_policy);
+            if (face.gaze_active) {
+                g_state->face.gaze_target_h.store(face.gaze_h, std::memory_order_relaxed);
+                g_state->face.gaze_target_v.store(face.gaze_v, std::memory_order_relaxed);
+            } else {
+                g_state->face.gaze_target_h.store(0.0f, std::memory_order_relaxed);
+                g_state->face.gaze_target_v.store(0.0f, std::memory_order_relaxed);
+            }
+
+            using clawd_motion::Intent;
+            const Intent intent = face.intent;
+            if (intent == Intent::StrokeRestore || intent == Intent::DizzyEnd) {
+                if (face_reaction_restore) {
+                    g_state->face.expression.store(*face_reaction_restore, std::memory_order_relaxed);
+                    face_reaction_restore.reset();
+                }
+            } else if (intent == Intent::FlickLeft || intent == Intent::FlickRight) {
+                face_reaction_restore.reset();
+                std::int16_t next = static_cast<std::int16_t>(
+                    g_state->face.expression.load(std::memory_order_relaxed)) +
+                    face.preview_step;
+                const auto count = static_cast<std::int16_t>(avatar::kExpressionCount);
+                next %= count;
+                if (next < 0) {
+                    next += count;
+                }
+                g_state->face.expression.store(next, std::memory_order_relaxed);
+                if (g_board != nullptr) {
+                    (void)g_board->vibrate(30);
+                }
+            } else if (intent != Intent::None) {
+                if (intent == Intent::Stroke || intent == Intent::DizzyStart) {
+                    if (!face_reaction_restore) {
+                        face_reaction_restore = static_cast<std::uint8_t>(
+                            g_state->face.expression.load(std::memory_order_relaxed));
                     }
+                } else {
+                    face_reaction_restore.reset();
                 }
-                if (!follow_active) {
-                    g_state->face.gaze_target_h.store(0.0f, std::memory_order_relaxed);
-                    g_state->face.gaze_target_v.store(0.0f, std::memory_order_relaxed);
+                const auto next = expression_for(intent);
+                g_state->face.expression.store(static_cast<std::uint8_t>(next), std::memory_order_relaxed);
+                if (g_board != nullptr) {
+                    const std::uint16_t ms = intent == Intent::DizzyStart ? 80 : 30;
+                    (void)g_board->vibrate(ms);
                 }
+                ESP_LOGI(kTag, "face intent %u → expr %u", static_cast<unsigned>(intent),
+                         static_cast<unsigned>(next));
+            }
+            if (!td.isPressed()) {
+                overlay_owns_gesture = false;
             }
         }
 
