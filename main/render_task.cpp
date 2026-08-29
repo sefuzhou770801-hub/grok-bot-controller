@@ -279,15 +279,17 @@ void render_task_entry(void* arg) {
             args.state->notify_balloon_complete();
         }
 
-        // Deduct this frame's draw time from the target period. Keep at
-        // least one tick of sleep so the IDLE task on this core always runs
-        // (watchdog feeding), even when a frame overruns the budget.
+        // Deduct this frame's draw time from the target period. A full-screen
+        // draw (~140 ms) overruns the budget every frame, and a 1-tick sleep
+        // starves IDLE1 when another core-1 task is also busy: task_wdt then
+        // barks every 5 s. Keep a 20 ms floor so IDLE always feeds the dog.
         {
+            constexpr TickType_t kRestFloor = pdMS_TO_TICKS(20);
             const std::uint32_t frame_end = static_cast<std::uint32_t>(esp_timer_get_time() / 1000);
             const std::uint32_t spent = frame_end - now_ms;
-            TickType_t rest = spent >= kTargetFrameMs ? 1 : pdMS_TO_TICKS(kTargetFrameMs - spent);
-            if (rest < 1) {
-                rest = 1;
+            TickType_t rest = spent >= kTargetFrameMs ? kRestFloor : pdMS_TO_TICKS(kTargetFrameMs - spent);
+            if (rest < kRestFloor) {
+                rest = kRestFloor;
             }
             vTaskDelay(rest);
 

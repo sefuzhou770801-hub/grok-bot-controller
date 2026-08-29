@@ -16,8 +16,8 @@ for (const token of ['now_ms', 'mouth_open', 'eye_open', 'expr_from', 'expr_blen
                      'expr_hold_to', 'expr_hold_blend']) {
   if (!src.includes(token)) throw new Error(`grok_face.avdsl missing ${token}`);
 }
-if (!src.includes('0.8369')) {
-  throw new Error('grok_face.avdsl should sample bloub egg (0.8369) radii');
+if (src.includes('0.8369')) {
+  throw new Error('grok_face.avdsl must not keep the egg body morph (0.8369): body stays a circle');
 }
 if (!src.includes('Persistent listening')) {
   throw new Error('grok_face.avdsl missing persistent listening motion');
