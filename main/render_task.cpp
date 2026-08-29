@@ -28,45 +28,6 @@ constexpr TickType_t kPeriodTicks = pdMS_TO_TICKS(33);
 
 using avatar::RichCanvas;
 
-// Battery gauge overlay, composited into the frame just before present (same
-// frame as the face — drawing after present flickers). `pct` is 0..100; values
-// < 0 are filtered out by the caller. Wrapped in a group so the direct strategy
-// composites it off-screen.
-void draw_battery_gauge(RichCanvas& canvas, int pct) {
-    constexpr int x = 6, y = 6, w = 34, h = 16; // battery body
-    constexpr int nub_w = 3, nub_h = 6;         // positive terminal nub
-    if (pct < 0)
-        pct = 0;
-    if (pct > 100)
-        pct = 100;
-
-    const std::uint16_t white = canvas.color565(235, 235, 235);
-    const std::uint16_t black = canvas.color565(0, 0, 0);
-    const std::uint16_t fill = pct >= 50 ? canvas.color565(80, 220, 120)
-                                         : (pct >= 20 ? canvas.color565(235, 200, 90) : canvas.color565(230, 110, 110));
-
-    canvas.begin_group(x - 1, y - 1, w + nub_w + 44, h + 2);
-    // Backing panel behind the icon + text so it stays legible over the face.
-    canvas.fillRect(x - 1, y - 1, w + nub_w + 44, h + 2, black);
-    // Body outline + terminal.
-    canvas.drawRoundRect(x, y, w, h, 2, white);
-    canvas.fillRect(x + w, y + (h - nub_h) / 2, nub_w, nub_h, white);
-    // Charge fill proportional to percent.
-    const int inner_w = w - 4;
-    const int filled = (inner_w * pct + 50) / 100;
-    if (filled > 0) {
-        canvas.fillRect(x + 2, y + 2, filled, h - 4, fill);
-    }
-    // Percent text to the right of the icon.
-    char label[8];
-    std::snprintf(label, sizeof(label), "%d%%", pct);
-    canvas.setTextDatum(lgfx::textdatum_t::middle_left);
-    canvas.setTextColor(white, black);
-    canvas.setTextSize(1);
-    canvas.drawString(label, x + w + nub_w + 4, y + h / 2);
-    canvas.end_group();
-}
-
 // One-touch mute badge: a struck-through speaker glyph shown whenever
 // speaker_muted is set, so the user can tell at a glance why the device is
 // silent. Drawn in the top-left corner — on touch boards the same corner is
@@ -294,15 +255,9 @@ void render_task_entry(void* arg) {
             avatar.tick(now_ms, canvas);
         }
 
-        // Battery gauge overlay. Live from SharedState.
-        bool gauge_shown = false;
-        if (state->battery.gauge_enabled.load(std::memory_order_relaxed)) {
-            const int pct = state->battery.pct.load(std::memory_order_relaxed);
-            if (pct >= 0) {
-                draw_battery_gauge(canvas, pct);
-                gauge_shown = true;
-            }
-        }
+        // Battery gauge removed from the face (2026-08-29 老板定案)：数值仍在
+        // SharedState/设置页可查，屏幕上不再绘制。徽章排版保留原位。
+        const bool gauge_shown = false;
 
         // Mute badge, below the battery gauge when both are up. Round
         // panels (StopWatch) inset it to the inscribed square so it stays
