@@ -69,7 +69,9 @@ end
 
 ----------------------------------------------------------------------
 -- Expression mapping. Body shape is independent; each expression still
--- only changes capsule proportions, tilt and openness.
+-- only changes capsule proportions, tilt and openness. C++ owns the
+-- from/to ease and injects expr_from + expr_blend; this mixes the two
+-- parameter sets as a pure function of the current frame.
 ----------------------------------------------------------------------
 fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
   let gx = gaze_h * sz(4) + ox
@@ -78,38 +80,196 @@ fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
   let left_y = ty(120) + (ty(76.68) - ty(120)) * sy + gy
   let right_x = tx(160) + (tx(222.98) - tx(160)) * sx + gx
   let right_y = ty(120) + (ty(66.10) - ty(120)) * sy + gy
+  let b = clamp(expr_blend, 0, 1)
 
-  if expr == HAPPY then
-    capsule_eye(left_x, left_y, sz(3.5) * scale, sz(8.5) * scale,
-                -0.258819, 0.965926, 0.62, left_lid, color)
-    capsule_eye(right_x, right_y, sz(3.0) * scale, sz(7.0) * scale,
-                0.258819, 0.965926, 0.62, right_lid, color)
-  elif expr == SAD then
-    capsule_eye(left_x, left_y + sz(2) * sy, sz(12.0) * scale, sz(7.5) * scale,
-                0.469472, 0.882948, 0.88, left_lid, color)
-    capsule_eye(right_x, right_y + sz(2) * sy, sz(11.0) * scale, sz(6.5) * scale,
-                -0.469472, 0.882948, 0.88, right_lid, color)
-  elif expr == ANGRY then
-    capsule_eye(left_x, left_y, sz(5.0) * scale, sz(8.0) * scale,
-                -0.5, 0.866025, 0.72, left_lid, color)
-    capsule_eye(right_x, right_y, sz(4.5) * scale, sz(6.7) * scale,
-                0.5, 0.866025, 0.72, right_lid, color)
-  elif expr == DOUBT then
-    capsule_eye(left_x - sz(1) * sx, left_y, sz(12.0) * scale, sz(8.5) * scale,
-                0.615661, 0.788011, 1, left_lid, color)
-    capsule_eye(right_x + sz(1) * sx, right_y, sz(4.0) * scale, sz(7.0) * scale,
-                0.173648, 0.984808, 0.48, right_lid, color)
-  elif expr == SLEEPY then
-    capsule_eye(left_x, left_y + sz(4) * sy, sz(5.0) * scale, sz(8.0) * scale,
-                0.087156, 0.996195, 0.28, left_lid, color)
-    capsule_eye(right_x, right_y + sz(4) * sy, sz(4.5) * scale, sz(6.7) * scale,
-                0.087156, 0.996195, 0.28, right_lid, color)
-  else
-    capsule_eye(left_x, left_y, sz(11.3) * scale, sz(9.3) * scale,
-                0.469472, 0.882948, 1, left_lid, color)
-    capsule_eye(right_x, right_y, sz(10.8) * scale, sz(7.2) * scale,
-                0.469472, 0.882948, 1, right_lid, color)
+  -- Neutral defaults for the source expression.
+  let f_lhs = 11.3
+  let f_lr = 9.3
+  let f_ldx = 0.469472
+  let f_ldy = 0.882948
+  let f_lo = 1
+  let f_lx = 0
+  let f_ly = 0
+  let f_rhs = 10.8
+  let f_rr = 7.2
+  let f_rdx = 0.469472
+  let f_rdy = 0.882948
+  let f_ro = 1
+  let f_rx = 0
+  let f_ry = 0
+  if expr_from == HAPPY then
+    f_lhs = 3.5
+    f_lr = 8.5
+    f_ldx = -0.258819
+    f_ldy = 0.965926
+    f_lo = 0.62
+    f_rhs = 3.0
+    f_rr = 7.0
+    f_rdx = 0.258819
+    f_rdy = 0.965926
+    f_ro = 0.62
+  elif expr_from == SAD then
+    f_lhs = 12.0
+    f_lr = 7.5
+    f_ldx = 0.469472
+    f_ldy = 0.882948
+    f_lo = 0.88
+    f_ly = 2
+    f_rhs = 11.0
+    f_rr = 6.5
+    f_rdx = -0.469472
+    f_rdy = 0.882948
+    f_ro = 0.88
+    f_ry = 2
+  elif expr_from == ANGRY then
+    f_lhs = 5.0
+    f_lr = 8.0
+    f_ldx = -0.5
+    f_ldy = 0.866025
+    f_lo = 0.72
+    f_rhs = 4.5
+    f_rr = 6.7
+    f_rdx = 0.5
+    f_rdy = 0.866025
+    f_ro = 0.72
+  elif expr_from == DOUBT then
+    f_lhs = 12.0
+    f_lr = 8.5
+    f_ldx = 0.615661
+    f_ldy = 0.788011
+    f_lo = 1
+    f_lx = -1
+    f_rhs = 4.0
+    f_rr = 7.0
+    f_rdx = 0.173648
+    f_rdy = 0.984808
+    f_ro = 0.48
+    f_rx = 1
+  elif expr_from == SLEEPY then
+    f_lhs = 5.0
+    f_lr = 8.0
+    f_ldx = 0.087156
+    f_ldy = 0.996195
+    f_lo = 0.28
+    f_ly = 4
+    f_rhs = 4.5
+    f_rr = 6.7
+    f_rdx = 0.087156
+    f_rdy = 0.996195
+    f_ro = 0.28
+    f_ry = 4
   end
+
+  -- Neutral defaults for the target expression (`expr`).
+  let t_lhs = 11.3
+  let t_lr = 9.3
+  let t_ldx = 0.469472
+  let t_ldy = 0.882948
+  let t_lo = 1
+  let t_lx = 0
+  let t_ly = 0
+  let t_rhs = 10.8
+  let t_rr = 7.2
+  let t_rdx = 0.469472
+  let t_rdy = 0.882948
+  let t_ro = 1
+  let t_rx = 0
+  let t_ry = 0
+  if expr == HAPPY then
+    t_lhs = 3.5
+    t_lr = 8.5
+    t_ldx = -0.258819
+    t_ldy = 0.965926
+    t_lo = 0.62
+    t_rhs = 3.0
+    t_rr = 7.0
+    t_rdx = 0.258819
+    t_rdy = 0.965926
+    t_ro = 0.62
+  elif expr == SAD then
+    t_lhs = 12.0
+    t_lr = 7.5
+    t_ldx = 0.469472
+    t_ldy = 0.882948
+    t_lo = 0.88
+    t_ly = 2
+    t_rhs = 11.0
+    t_rr = 6.5
+    t_rdx = -0.469472
+    t_rdy = 0.882948
+    t_ro = 0.88
+    t_ry = 2
+  elif expr == ANGRY then
+    t_lhs = 5.0
+    t_lr = 8.0
+    t_ldx = -0.5
+    t_ldy = 0.866025
+    t_lo = 0.72
+    t_rhs = 4.5
+    t_rr = 6.7
+    t_rdx = 0.5
+    t_rdy = 0.866025
+    t_ro = 0.72
+  elif expr == DOUBT then
+    t_lhs = 12.0
+    t_lr = 8.5
+    t_ldx = 0.615661
+    t_ldy = 0.788011
+    t_lo = 1
+    t_lx = -1
+    t_rhs = 4.0
+    t_rr = 7.0
+    t_rdx = 0.173648
+    t_rdy = 0.984808
+    t_ro = 0.48
+    t_rx = 1
+  elif expr == SLEEPY then
+    t_lhs = 5.0
+    t_lr = 8.0
+    t_ldx = 0.087156
+    t_ldy = 0.996195
+    t_lo = 0.28
+    t_ly = 4
+    t_rhs = 4.5
+    t_rr = 6.7
+    t_rdx = 0.087156
+    t_rdy = 0.996195
+    t_ro = 0.28
+    t_ry = 4
+  end
+
+  let lhs = f_lhs + (t_lhs - f_lhs) * b
+  let lr = f_lr + (t_lr - f_lr) * b
+  let ldx = f_ldx + (t_ldx - f_ldx) * b
+  let ldy = f_ldy + (t_ldy - f_ldy) * b
+  let lo = f_lo + (t_lo - f_lo) * b
+  let lx = f_lx + (t_lx - f_lx) * b
+  let ly = f_ly + (t_ly - f_ly) * b
+  let llen = sqrt(ldx * ldx + ldy * ldy)
+  if llen > 0.0001 then
+    ldx = ldx / llen
+    ldy = ldy / llen
+  end
+
+  let rhs = f_rhs + (t_rhs - f_rhs) * b
+  let rr = f_rr + (t_rr - f_rr) * b
+  let rdx = f_rdx + (t_rdx - f_rdx) * b
+  let rdy = f_rdy + (t_rdy - f_rdy) * b
+  let ro = f_ro + (t_ro - f_ro) * b
+  let rx = f_rx + (t_rx - f_rx) * b
+  let ry = f_ry + (t_ry - f_ry) * b
+  let rlen = sqrt(rdx * rdx + rdy * rdy)
+  if rlen > 0.0001 then
+    rdx = rdx / rlen
+    rdy = rdy / rlen
+  end
+
+  capsule_eye(left_x + lx * canvas_scale * sx, left_y + ly * canvas_scale * sy,
+              sz(lhs) * scale, sz(lr) * scale,
+              ldx, ldy, lo, left_lid, color)
+  capsule_eye(right_x + rx * canvas_scale * sx, right_y + ry * canvas_scale * sy,
+              sz(rhs) * scale, sz(rr) * scale,
+              rdx, rdy, ro, right_lid, color)
 end
 
 ----------------------------------------------------------------------

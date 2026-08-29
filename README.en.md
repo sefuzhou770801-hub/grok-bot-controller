@@ -166,7 +166,7 @@ compile-time default can be given via `sdkconfig.defaults.local` (gitignored).
 ├── patches/                 upstream-targeted patches
 ├── tools/                   apply-m5-patches.sh, monitor_log.py, settings.html,
 │                            avatar_dsl/ (compiler + WASM glue)
-├── assets/                  .avdsl sources (default_face, omega_mouth, aokko_face)
+├── assets/                  .avdsl sources (default_face, omega_mouth, aokko_face, grok_face)
 ├── partitions.csv           OTA layout (ota_0 / ota_1 / nvs / storage)
 ├── sdkconfig.defaults*      shared + per-board (.cores3 / .atoms3r / .atoms3 / .stopwatch)
 └── Makefile                 thin wrapper around idf.py (BOARD= switch)

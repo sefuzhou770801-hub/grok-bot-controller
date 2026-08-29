@@ -69,7 +69,7 @@ while cond do ... end                   -- 無限ループ防止策は無し、�
 -- read-only コンテキスト変数 (ホストから注入):
 --   canvas_w canvas_h canvas_scale now_ms
 --   breath eye_open gaze_h gaze_v mouth_open    -- 0..1 / -1..1
---   expr                                          -- enum 0..5
+--   expr expr_from expr_blend                     -- enum 0..5 / 0..1 ease
 --   primary background secondary balloon_fg balloon_bg   -- RGB565
 --   eye_radius eye_off_x eye_off_y
 --   brow_off_x brow_off_y
@@ -96,6 +96,7 @@ end
 | `default` | [default_face.avdsl](../../assets/default_face.avdsl) | 旧 C++ `face.cpp` 等価。6 表情 + 眉 + 表情エフェクト (heart / anger / sweat / …) のフル セット |
 | `omega` | [omega_mouth.avdsl](../../assets/omega_mouth.avdsl) | `default` の口を ω 形 (リング マスク + 中央ピーク) に差し替えた例。「パーツ 1 つだけ差し替える」サンプル |
 | `aokko` | [aokko_face.avdsl](../../assets/aokko_face.avdsl) | aokko-face スタイル: 縦長 pill 形の目 + 3 本まつげ (open は ⌒-fan、close は ‖‖‖)、六芒星の頬、横長口。眉と表情エフェクトは無し |
+| `grok` | [grok_face.avdsl](../../assets/grok_face.avdsl) | Grok ボット顔。円い体 + 非対称カプセル目。`expr_from`/`expr_blend` で表情パラメータを補間 |
 
 ## バイトコード ファイル形式 (`.avbc`)
 

@@ -14,6 +14,11 @@ namespace stackchan::avatar {
 
 struct DrawContext {
     Expression expression{Expression::Neutral};
+    // Source expression for a C++-owned ease. `expression_blend` is 0 at the
+    // start of a transition (fully `expression_from`) and 1 when idle / done
+    // (fully `expression`). DSL is a pure function of these three.
+    Expression expression_from{Expression::Neutral};
+    float expression_blend{1.0f};
     float breath{0.0f};
     // External / commanded gaze target — written by Avatar::set_gaze (e.g.
     // touch-follow, future API gesture). Saccade is added on top so the

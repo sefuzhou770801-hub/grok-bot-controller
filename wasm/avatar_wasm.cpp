@@ -24,6 +24,7 @@
 #include "avatar/canvas.hpp"
 #include "avatar/draw_context.hpp"
 #include "avatar/expression.hpp"
+#include "avatar/expression_controller.hpp"
 #include "avatar/face_tuning.hpp"
 #include "avatar/palette.hpp"
 #include "avatar_vm/bytecode.hpp"
@@ -167,6 +168,7 @@ std::int32_t g_h = 240;
 
 M5Canvas g_canvas;
 DrawContext g_ctx;
+ExpressionController g_expr;
 internal::FaceAnimator g_anim;
 FaceTuning g_tune;
 
@@ -206,6 +208,7 @@ EMSCRIPTEN_KEEPALIVE int avatar_init()
         return 0;
     }
     g_ctx = DrawContext{};
+    g_expr = ExpressionController{};
     load_default_bytecode();
     return g_bytecode_ok ? 1 : 0;
 }
@@ -240,7 +243,7 @@ EMSCRIPTEN_KEEPALIVE void avatar_set_expression(int e)
 {
     if (e < 0) e = 0;
     if (e > 5) e = 5;
-    g_ctx.expression = static_cast<Expression>(e);
+    g_expr.set_target(static_cast<Expression>(e));
 }
 
 EMSCRIPTEN_KEEPALIVE void avatar_set_mouth(float ratio)
@@ -371,6 +374,7 @@ EMSCRIPTEN_KEEPALIVE void avatar_tick(double now_ms)
 {
     const std::uint32_t t = static_cast<std::uint32_t>(now_ms);
     g_anim.tick(t, g_ctx);
+    g_expr.apply(g_ctx, t);
     if (g_manual_gaze) {
         g_ctx.gaze_horizontal = g_gaze_h;
         g_ctx.gaze_vertical = g_gaze_v;
@@ -381,7 +385,7 @@ EMSCRIPTEN_KEEPALIVE void avatar_tick(double now_ms)
 
     const int expr = static_cast<int>(g_ctx.expression);
     if (g_direct_mode) {
-        if (expr != g_last_expr) {
+        if (expr != g_last_expr || g_expr.blend() < 1.0f) {
             g_direct.request_full_repaint();
             g_last_expr = expr;
         }

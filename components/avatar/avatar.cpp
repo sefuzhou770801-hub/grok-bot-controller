@@ -6,6 +6,7 @@
 #include <esp_log.h>
 
 #include "animation.hpp"
+#include "avatar/expression_controller.hpp"
 #include "avatar_vm/bytecode.hpp"
 #include "avatar_vm/default_bytecode.hpp"
 #include "avatar_vm/vm.hpp"
@@ -36,6 +37,10 @@ public:
     void tick(std::uint32_t now_ms, RichCanvas& canvas)
     {
         animator_.tick(now_ms, context_);
+        expression_ctrl_.apply(context_, now_ms);
+        if (expression_ctrl_.blend() < 1.0f) {
+            full_repaint_pending_ = true;
+        }
         context_.now_ms = now_ms;
 
         if (full_repaint_pending_) {
@@ -66,6 +71,12 @@ public:
         tuning_ = tuning;
         context_.palette.primary = tuning.face_color;
         context_.palette.background = tuning.bg_color;
+        full_repaint_pending_ = true;
+    }
+
+    void set_expression(Expression expression)
+    {
+        expression_ctrl_.set_target(expression);
         full_repaint_pending_ = true;
     }
 
@@ -106,6 +117,7 @@ private:
     DrawContext context_{};
     FaceTuning tuning_{};
     internal::FaceAnimator animator_{};
+    ExpressionController expression_ctrl_{};
     std::vector<std::uint8_t> loaded_bytecode_;
     avatar_vm::Bytecode bytecode_{};
     avatar_vm::Vm vm_{};
@@ -120,8 +132,7 @@ Avatar& Avatar::operator=(Avatar&&) noexcept = default;
 
 void Avatar::set_expression(Expression expression) noexcept
 {
-    impl_->context().expression = expression;
-    impl_->request_full_repaint();
+    impl_->set_expression(expression);
 }
 
 void Avatar::set_mouth_open(float ratio) noexcept

@@ -103,6 +103,8 @@ enum class Var : std::uint8_t {
     CheekRadius = 0x1C,
     CheekOffX = 0x1D,
     CheekOffY = 0x1E,
+    ExprFrom = 0x1F,
+    ExprBlend = 0x20,
     VarCount,
 };
 

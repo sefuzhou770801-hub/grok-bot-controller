@@ -95,3 +95,16 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           cmake --build build
           ./build/jtts_test_vowels
+
+      - name: Install Node.js (avatar DSL compiler tests)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: avatar_dsl compile tests
+        working-directory: tools/avatar_dsl
+        run: |
+          set -euo pipefail
+          node test/smoke.mjs
+          node test/round_trip.mjs
+          node test/grok_face_compile.mjs

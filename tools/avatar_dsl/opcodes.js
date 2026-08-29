@@ -72,6 +72,8 @@ export const Var = Object.freeze({
   cheek_radius: 0x1C,
   cheek_off_x: 0x1D,
   cheek_off_y: 0x1E,
+  expr_from: 0x1F,
+  expr_blend: 0x20,
 });
 
 export const ConstTag = Object.freeze({

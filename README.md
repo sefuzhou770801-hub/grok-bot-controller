@@ -156,7 +156,7 @@ OpenAI / Gemini の API キーはビルドに埋め込まず、BLE / Wi-Fi 設�
 ├── patches/                upstream-targeted patches
 ├── tools/                  apply-m5-patches.sh, monitor_log.py, settings.html,
 │                           avatar_dsl/ (コンパイラ + WASM 連携)
-├── assets/                 .avdsl ソース (default_face, omega_mouth, aokko_face)
+├── assets/                 .avdsl ソース (default_face, omega_mouth, aokko_face, grok_face)
 ├── partitions.csv          OTA 配置 (ota_0 / ota_1 / nvs / storage)
 ├── sdkconfig.defaults*     共通 + ボード別 (.cores3 / .atoms3r / .atoms3 / .stopwatch)
 └── Makefile                idf.py の薄いラッパ (BOARD= 切替)

@@ -8,11 +8,11 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compile } from '../compile.js';
-import { MAGIC, VERSION, Op } from '../opcodes.js';
+import { MAGIC, VERSION, Op, Var } from '../opcodes.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const src = readFileSync(resolve(ROOT, 'assets/grok_face.avdsl'), 'utf8');
-for (const token of ['now_ms', 'mouth_open', 'eye_open']) {
+for (const token of ['now_ms', 'mouth_open', 'eye_open', 'expr_from', 'expr_blend']) {
   if (!src.includes(token)) throw new Error(`grok_face.avdsl missing ${token}`);
 }
 if (!src.includes('0.8369') || !src.includes('0.7819')) {
@@ -43,11 +43,18 @@ const codeOff = off + fnCount * 6;
 const code = u8.subarray(codeOff, codeOff + codeSize);
 let sawCircle = false;
 let sawTriangle = false;
+let sawExprFrom = false;
+let sawExprBlend = false;
 let pc = 0;
 while (pc < code.length) {
   const op = code[pc++];
   if (op === Op.FillCircle) sawCircle = true;
   if (op === Op.FillTriangle) sawTriangle = true;
+  if (op === Op.PushVar) {
+    const id = code[pc];
+    if (id === Var.expr_from) sawExprFrom = true;
+    if (id === Var.expr_blend) sawExprBlend = true;
+  }
   if (op === Op.PushF32) pc += 4;
   else if (op === Op.PushI8 || op === Op.PushConst || op === Op.PushVar ||
            op === Op.PushLocal || op === Op.StoreLocal || op === Op.Call) pc += 1;
@@ -55,6 +62,8 @@ while (pc < code.length) {
 }
 if (!sawCircle) throw new Error('idle body should still emit fill_circle');
 if (!sawTriangle) throw new Error('eyes/morph body should emit fill_triangle');
+if (!sawExprFrom) throw new Error('blend path should PushVar expr_from');
+if (!sawExprBlend) throw new Error('blend path should PushVar expr_blend');
 
 console.log({ size: buf.byteLength, constCount, fnCount, codeSize, sawCircle, sawTriangle });
 console.log('OK');
