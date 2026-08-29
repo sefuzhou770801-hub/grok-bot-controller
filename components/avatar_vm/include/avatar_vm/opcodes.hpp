@@ -107,6 +107,8 @@ enum class Var : std::uint8_t {
     ExprBlend = 0x20,
     ExprHoldTo = 0x21,
     ExprHoldBlend = 0x22,
+    ExprHold2To = 0x23,
+    ExprHold2Blend = 0x24,
     VarCount,
 };
 

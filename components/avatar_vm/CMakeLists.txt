@@ -41,3 +41,6 @@ add_dependencies(${COMPONENT_LIB} avatar_vm_default_face)
 # Linker symbols (per ESP-IDF EMBED docs):
 #   _binary_default_face_avbc_start / _binary_default_face_avbc_end
 target_add_binary_data(${COMPONENT_LIB} "${_AVATAR_DSL_OUT}" BINARY)
+
+# Render-hot path: keep -O2 under the global -Os (OTA size budget).
+target_compile_options(${COMPONENT_LIB} PRIVATE -O2)

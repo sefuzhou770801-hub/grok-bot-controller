@@ -76,6 +76,8 @@ export const Var = Object.freeze({
   expr_blend: 0x20,
   expr_hold_to: 0x21,
   expr_hold_blend: 0x22,
+  expr_hold2_to: 0x23,
+  expr_hold2_blend: 0x24,
 });
 
 export const ConstTag = Object.freeze({

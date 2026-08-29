@@ -275,6 +275,36 @@ int main() {
         }
     }
 
+    // --- PushVar ExprHold2To / ExprHold2Blend ----------------------------
+    {
+        BytecodeBuilder b;
+        b.code(PUSH_VAR);
+        b.code(static_cast<std::uint8_t>(Var::ExprHold2To));
+        b.code(PUSH_VAR);
+        b.code(static_cast<std::uint8_t>(Var::ExprHold2Blend));
+        b.code(PUSH_I8);
+        b.code(10);
+        b.code(MUL);
+        b.code(PUSH_I8);
+        b.code(1);
+        b.code(PUSH_I8);
+        b.code(3);
+        b.code(FILL_CIRCLE);
+        b.code(RET);
+        b.add_fn(0, 0, 0);
+
+        stackchan::avatar::DrawContext ctx;
+        ctx.expression_hold2_to = stackchan::avatar::Expression::Happy; // 1
+        ctx.expression_hold2_blend = 0.5f;
+        auto rr = run_program(b.build(0), ctx);
+        CHECK(rr.ran.has_value());
+        CHECK(rr.canvas.ops.size() == 1);
+        if (rr.canvas.ops.size() == 1) {
+            CHECK(rr.canvas.ops[0].a == 1);
+            CHECK(rr.canvas.ops[0].b == 5); // 0.5 * 10
+        }
+    }
+
     // --- function call with a parameter ----------------------------------
     {
         BytecodeBuilder b;

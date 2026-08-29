@@ -70,7 +70,7 @@ end
 ----------------------------------------------------------------------
 -- Expression mapping. Body shape is independent; each expression still
 -- only changes capsule proportions, tilt and openness. C++ owns the
--- from/to ease and a one-level hold; this mixes three weighted parameter
+-- from/to ease and two nested holds; this mixes four weighted parameter
 -- sets as a pure function of the current frame.
 ----------------------------------------------------------------------
 fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
@@ -82,6 +82,7 @@ fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
   let right_y = ty(120) + (ty(66.10) - ty(120)) * sy + gy
   let b = clamp(expr_blend, 0, 1)
   let hb = clamp(expr_hold_blend, 0, 1)
+  let hb2 = clamp(expr_hold2_blend, 0, 1)
 
   let lhs = 0
   let lr = 0
@@ -99,13 +100,16 @@ fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
   let ry = 0
 
   let i = 0
-  while i < 3 do
+  while i < 4 do
     let e = expr_from
-    let w = (1 - hb) * (1 - b)
+    let w = (1 - hb2) * (1 - hb) * (1 - b)
     if i == 1 then
+      e = expr_hold2_to
+      w = hb2 * (1 - hb) * (1 - b)
+    elif i == 2 then
       e = expr_hold_to
       w = hb * (1 - b)
-    elif i == 2 then
+    elif i == 3 then
       e = expr
       w = b
     end

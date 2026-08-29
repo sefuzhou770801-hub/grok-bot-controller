@@ -83,6 +83,10 @@ inline float read_var(Var v, const avatar::Canvas& canvas, const avatar::DrawCon
         return expression_to_f(ctx.expression_hold_to);
     case Var::ExprHoldBlend:
         return ctx.expression_hold_blend;
+    case Var::ExprHold2To:
+        return expression_to_f(ctx.expression_hold2_to);
+    case Var::ExprHold2Blend:
+        return ctx.expression_hold2_blend;
     case Var::Primary: return static_cast<float>(ctx.palette.primary);
     case Var::Background: return static_cast<float>(ctx.palette.background);
     case Var::Secondary: return static_cast<float>(ctx.palette.secondary);

@@ -10,8 +10,10 @@ CONFIG_PARTITION_TABLE_SINGLE_APP=n
 # Bootloader rollback.
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
-# Avatar renders at 30 fps from a PSRAM canvas — favour speed over size.
-CONFIG_COMPILER_OPTIMIZATION_PERF=y
+# The app must fit two 4 MiB OTA slots; global -Os buys that headroom.
+# Render-hot components (avatar, avatar_vm, M5GFX) opt back into -O2 in
+# their CMakeLists / the project CMakeLists to keep the 30 fps loop fast.
+CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 
 # Logging.
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
