@@ -11,15 +11,103 @@
 
 namespace stackchan::avatar {
 
-// Cross-frame expression ease. The VM zeros locals every run(), so blend
-// progress cannot live in DSL; this controller records from/to and two nested
-// holds of interrupted mixes, then writes them into DrawContext.
+// Cross-frame expression ease plus three-source arbitration. The VM zeros
+// locals every run(), so blend progress cannot live in DSL; this controller
+// records from/to and two nested holds of interrupted mixes, then writes
+// them into DrawContext.
+//
+// Sources (highest first): timed interactive overlay, voice listening /
+// thinking (persistent base, including tool-call wait), conversation mood
+// (LLM / MCP / button), then idle decay (bored → sleepy). `set_target` is
+// the blender input; `resolve` picks the live face from the sources.
 class ExpressionController {
 public:
     static constexpr std::uint32_t kDurationMs = 300;
+    static constexpr std::uint32_t kDefaultOverlayHoldMs = 3000;
+    static constexpr std::uint32_t kBoredAfterMs = 2u * 60u * 1000u;
+    static constexpr std::uint32_t kSleepyAfterMs = 5u * 60u * 1000u;
 
     void set_target(Expression to) noexcept {
         pending_ = to;
+    }
+
+    void set_base(Expression mood) noexcept {
+        if (mood_ != mood) {
+            mood_ = mood;
+            activity_pending_ = true;
+        }
+    }
+
+    void set_voice_state(VoiceState voice) noexcept {
+        if (voice_ != voice) {
+            voice_ = voice;
+            activity_pending_ = true;
+        }
+    }
+
+    // `hold_ms == 0` keeps the overlay until `clear_overlay`.
+    void set_overlay(Expression overlay, std::uint32_t hold_ms) noexcept {
+        overlay_ = overlay;
+        overlay_hold_ms_ = hold_ms;
+        overlay_started_ = false;
+        activity_pending_ = true;
+    }
+
+    void clear_overlay() noexcept {
+        overlay_.reset();
+        overlay_started_ = false;
+    }
+
+    void note_activity() noexcept {
+        activity_pending_ = true;
+    }
+
+    Expression resolve(std::uint32_t now_ms) noexcept {
+        if (activity_pending_) {
+            last_activity_ms_ = now_ms;
+            activity_pending_ = false;
+        }
+
+        if (overlay_) {
+            if (!overlay_started_) {
+                overlay_start_ms_ = now_ms;
+                overlay_started_ = true;
+            }
+            const bool sticky = overlay_hold_ms_ == 0;
+            if (sticky || now_ms - overlay_start_ms_ < overlay_hold_ms_) {
+                last_resolved_ = *overlay_;
+                return last_resolved_;
+            }
+            overlay_.reset();
+            overlay_started_ = false;
+        }
+
+        if (voice_ == VoiceState::Thinking) {
+            last_resolved_ = Expression::Thinking;
+            return last_resolved_;
+        }
+        if (voice_ == VoiceState::Listening) {
+            last_resolved_ = Expression::Listening;
+            return last_resolved_;
+        }
+        if (mood_ != Expression::Neutral) {
+            last_resolved_ = mood_;
+            return last_resolved_;
+        }
+
+        const std::uint32_t idle_ms = now_ms - last_activity_ms_;
+        if (idle_ms >= kSleepyAfterMs) {
+            last_resolved_ = Expression::Sleepy;
+        } else if (idle_ms >= kBoredAfterMs) {
+            last_resolved_ = Expression::Bored;
+        } else {
+            last_resolved_ = Expression::Neutral;
+        }
+        return last_resolved_;
+    }
+
+    Expression last_resolved() const noexcept {
+        return last_resolved_;
     }
 
     void apply(DrawContext& ctx, std::uint32_t now_ms) noexcept {
@@ -133,6 +221,16 @@ private:
     float blend_{1.0f};
     float hold_blend_{1.0f};
     float hold2_blend_{0.0f};
+
+    Expression mood_{Expression::Neutral};
+    VoiceState voice_{VoiceState::Idle};
+    std::optional<Expression> overlay_{};
+    std::uint32_t overlay_hold_ms_{0};
+    std::uint32_t overlay_start_ms_{0};
+    bool overlay_started_{false};
+    bool activity_pending_{false};
+    std::uint32_t last_activity_ms_{0};
+    Expression last_resolved_{Expression::Neutral};
 };
 
 } // namespace stackchan::avatar

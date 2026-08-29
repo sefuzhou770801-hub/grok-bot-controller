@@ -19,6 +19,15 @@ for (const token of ['now_ms', 'mouth_open', 'eye_open', 'expr_from', 'expr_blen
 if (!src.includes('0.8369')) {
   throw new Error('grok_face.avdsl should sample bloub egg (0.8369) radii');
 }
+if (!src.includes('Persistent listening')) {
+  throw new Error('grok_face.avdsl missing persistent listening motion');
+}
+if (!src.includes('Persistent thinking')) {
+  throw new Error('grok_face.avdsl missing persistent thinking motion');
+}
+if (!src.includes('continuous slow look-around')) {
+  throw new Error('grok_face.avdsl missing bored look-around motion');
+}
 if (src.includes('0.7819')) {
   throw new Error('grok_face.avdsl must not keep the triangle body morph (0.7819)');
 }
@@ -30,25 +39,7 @@ if (SymbolicConsts.SLEEPY !== 5) {
 }
 const kkFaces = {
   LISTENING: 6, THINKING: 7, EXCITED: 8, CURIOUS: 9,
-  CONFUSED: 10, SURPRISED: 11, DIZZY: 12, AFFECTION: 13,
-};
-for (const [name, value] of Object.entries(kkFaces)) {
-  if (SymbolicConsts[name] !== value) {
-    throw new Error(`${name} must be ${value}, got ${SymbolicConsts[name]}`);
-  }
-  if (!src.includes(name)) {
-    throw new Error(`grok_face.avdsl missing ${name} keyframe`);
-  }
-}
-if (SymbolicConsts.NEUTRAL !== 0 || SymbolicConsts.IDLE !== 0) {
-  throw new Error('Neutral/Idle must stay 0 (KK Idle)');
-}
-if (SymbolicConsts.SLEEPY !== 5) {
-  throw new Error('original six must keep Sleepy = 5');
-}
-const kkFaces = {
-  LISTENING: 6, THINKING: 7, EXCITED: 8, CURIOUS: 9,
-  CONFUSED: 10, SURPRISED: 11, DIZZY: 12,
+  CONFUSED: 10, SURPRISED: 11, DIZZY: 12, AFFECTION: 13, BORED: 14,
 };
 for (const [name, value] of Object.entries(kkFaces)) {
   if (SymbolicConsts[name] !== value) {

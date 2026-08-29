@@ -140,6 +140,10 @@ void render_task_entry(void* arg) {
     bool avatar_vm_selected = true;
 
     int last_expression = -1;
+    int last_mood = -1;
+    int last_voice = -1;
+    std::uint32_t last_overlay_seq = 0;
+    std::uint32_t last_activity_seq = 0;
     std::uint32_t last_balloon_version = 0;
     std::uint32_t last_face_config_version = 0;
     std::uint32_t last_face_bytecode_version = 0;
@@ -221,12 +225,36 @@ void render_task_entry(void* arg) {
             clawd_face.request_full_repaint();
         }
 
-        const int expr = args.state->face.expression.load(std::memory_order_relaxed);
-        if (expr != last_expression) {
-            const auto expression = static_cast<avatar::Expression>(expr);
-            avatar.set_expression(expression);
-            clawd_face.set_expression(expression);
-            last_expression = expr;
+        const int mood = args.state->face.expression.load(std::memory_order_relaxed);
+        if (mood != last_mood) {
+            avatar.set_expression(static_cast<avatar::Expression>(mood));
+            last_mood = mood;
+        }
+        const int voice = static_cast<int>(args.state->conv.voice_state.load(std::memory_order_relaxed));
+        if (voice != last_voice) {
+            avatar.set_voice_state(static_cast<avatar::VoiceState>(voice));
+            last_voice = voice;
+        }
+        const std::uint32_t overlay_seq = args.state->face.overlay_seq.load(std::memory_order_acquire);
+        if (overlay_seq != last_overlay_seq) {
+            last_overlay_seq = overlay_seq;
+            const int overlay = args.state->face.overlay_expression.load(std::memory_order_relaxed);
+            if (overlay < 0) {
+                avatar.clear_overlay();
+            } else {
+                avatar.set_overlay(static_cast<avatar::Expression>(overlay),
+                                   args.state->face.overlay_hold_ms.load(std::memory_order_relaxed));
+            }
+        }
+        const std::uint32_t activity_seq = args.state->face.activity_seq.load(std::memory_order_relaxed);
+        if (activity_seq != last_activity_seq) {
+            last_activity_seq = activity_seq;
+            avatar.note_activity();
+        }
+        const auto resolved = avatar.resolve_expression(now_ms);
+        if (static_cast<int>(resolved) != last_expression) {
+            clawd_face.set_expression(resolved);
+            last_expression = static_cast<int>(resolved);
         }
         const float mouth_open = args.state->face.mouth_open.load(std::memory_order_relaxed);
         avatar.set_mouth_open(mouth_open);

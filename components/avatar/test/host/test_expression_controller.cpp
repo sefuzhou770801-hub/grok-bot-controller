@@ -15,6 +15,7 @@
 using stackchan::avatar::DrawContext;
 using stackchan::avatar::Expression;
 using stackchan::avatar::ExpressionController;
+using stackchan::avatar::VoiceState;
 
 namespace {
 
@@ -37,6 +38,7 @@ constexpr float kGrokLhs[kExprCount] = {
     6.0f,  // Surprised
     9.0f,  // Dizzy
     4.2f,  // Affection
+    10.5f, // Bored
 };
 
 bool near(float a, float b) {
@@ -330,6 +332,112 @@ int main() {
         c.apply(ctx, ExpressionController::kDurationMs);
         CHECK(near(mix_lhs(ctx), 13.0f));
         CHECK(ctx.expression == Expression::Thinking);
+    }
+
+    // --- three-source arbitration (issue #4) --------------------------------
+
+    // Voice listening is the persistent base, not a one-shot.
+    {
+        ExpressionController c;
+        c.set_voice_state(VoiceState::Listening);
+        CHECK(c.resolve(0) == Expression::Listening);
+        CHECK(c.resolve(8'000) == Expression::Listening);
+    }
+
+    // Overlay wins over listening, then falls back to listening.
+    {
+        ExpressionController c;
+        c.set_voice_state(VoiceState::Listening);
+        c.set_overlay(Expression::Happy, 3000);
+        CHECK(c.resolve(0) == Expression::Happy);
+        CHECK(c.resolve(2999) == Expression::Happy);
+        CHECK(c.resolve(3000) == Expression::Listening);
+    }
+
+    // Execution wait (thinking, including tool calls) wins over LLM mood.
+    {
+        ExpressionController c;
+        c.set_base(Expression::Happy);
+        c.set_voice_state(VoiceState::Thinking);
+        CHECK(c.resolve(0) == Expression::Thinking);
+    }
+
+    // LLM mood shows while speaking.
+    {
+        ExpressionController c;
+        c.set_base(Expression::Happy);
+        c.set_voice_state(VoiceState::Speaking);
+        CHECK(c.resolve(0) == Expression::Happy);
+    }
+
+    // Speaking with no mood is Neutral (mouth carries the speech).
+    {
+        ExpressionController c;
+        c.set_voice_state(VoiceState::Speaking);
+        CHECK(c.resolve(0) == Expression::Neutral);
+    }
+
+    // Three sources at once: overlay > thinking > mood.
+    {
+        ExpressionController c;
+        c.set_base(Expression::Curious);
+        c.set_voice_state(VoiceState::Thinking);
+        c.set_overlay(Expression::Happy, 2000);
+        CHECK(c.resolve(0) == Expression::Happy);
+        CHECK(c.resolve(2000) == Expression::Thinking);
+        c.set_voice_state(VoiceState::Speaking);
+        CHECK(c.resolve(2000) == Expression::Curious);
+    }
+
+    // Overlay hold 0 is sticky until cleared (stroke / dizzy).
+    {
+        ExpressionController c;
+        c.set_voice_state(VoiceState::Listening);
+        c.set_overlay(Expression::Dizzy, 0);
+        CHECK(c.resolve(0) == Expression::Dizzy);
+        CHECK(c.resolve(60'000) == Expression::Dizzy);
+        c.clear_overlay();
+        CHECK(c.resolve(60'000) == Expression::Listening);
+    }
+
+    // Idle decay: bored at 2 min, sleepy at 5 min.
+    {
+        ExpressionController c;
+        CHECK(c.resolve(0) == Expression::Neutral);
+        CHECK(c.resolve(ExpressionController::kBoredAfterMs - 1) == Expression::Neutral);
+        CHECK(c.resolve(ExpressionController::kBoredAfterMs) == Expression::Bored);
+        CHECK(c.resolve(ExpressionController::kSleepyAfterMs) == Expression::Sleepy);
+    }
+
+    // Touch / wake / message snaps sleepy back to the base.
+    {
+        ExpressionController c;
+        CHECK(c.resolve(ExpressionController::kSleepyAfterMs) == Expression::Sleepy);
+        c.note_activity();
+        CHECK(c.resolve(ExpressionController::kSleepyAfterMs + 10) == Expression::Neutral);
+    }
+
+    // Voice listening wins over decay (a live session is not idle).
+    {
+        ExpressionController c;
+        c.set_voice_state(VoiceState::Listening);
+        CHECK(c.resolve(ExpressionController::kSleepyAfterMs) == Expression::Listening);
+    }
+
+    // Deliberate MCP / button mood is not eaten by idle decay.
+    {
+        ExpressionController c;
+        c.set_base(Expression::Happy);
+        CHECK(c.resolve(0) == Expression::Happy);
+        CHECK(c.resolve(ExpressionController::kSleepyAfterMs) == Expression::Happy);
+    }
+
+    // Listening still wins over a leftover LLM mood (wake face).
+    {
+        ExpressionController c;
+        c.set_base(Expression::Happy);
+        c.set_voice_state(VoiceState::Listening);
+        CHECK(c.resolve(0) == Expression::Listening);
     }
 
     return avtest::finish("expression_controller");

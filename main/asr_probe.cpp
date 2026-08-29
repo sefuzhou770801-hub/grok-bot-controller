@@ -23,6 +23,7 @@
 
 #include "shared_state.hpp"
 #include "avatar/expression.hpp"
+#include "avatar/expression_controller.hpp"
 #include "settings_sinks.hpp"
 
 #include "esp_afe_config.h"
@@ -143,8 +144,9 @@ void detect_task(void*) {
             stackchan::app::settings_sinks::say_kana("はい");  // 声で「はい」と返事
             ESP_LOGI(kTag, "★★ WAKE WORD DETECTED (idx=%d) ★★", r->wake_word_index);
             if (g_state != nullptr) {
-                g_state->face.expression.store(static_cast<int>(stackchan::avatar::Expression::Happy),
-                                               std::memory_order_relaxed);
+                g_state->request_face_overlay(
+                    stackchan::avatar::Expression::Happy,
+                    stackchan::avatar::ExpressionController::kDefaultOverlayHoldMs);
                 g_state->set_balloon_text("はいï¼", 1800);  // 「はい？」
             }
         }

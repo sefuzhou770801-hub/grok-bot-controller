@@ -76,7 +76,17 @@ public:
     // --- Avatar face (render_task reads every frame) -----------------------
     struct Face {
         std::atomic<float> mouth_open{0.0f};
+        // Conversation mood (LLM / MCP / button). Not the live face: the
+        // expression controller resolves overlay + voice + this + idle decay.
         std::atomic<int> expression{static_cast<int>(stackchan::avatar::Expression::Neutral)};
+        // Interactive overlay. -1 = none. `overlay_seq` bumps so the render
+        // task retriggers the same face. `overlay_hold_ms == 0` is sticky
+        // until `clear_face_overlay`.
+        std::atomic<int> overlay_expression{-1};
+        std::atomic<std::uint32_t> overlay_hold_ms{0};
+        std::atomic<std::uint32_t> overlay_seq{0};
+        // Bumped on touch / wake / message so idle decay snaps back.
+        std::atomic<std::uint32_t> activity_seq{0};
         // External gaze target (Avatar::set_gaze inputs). Updated by the
         // touch-driven gaze-follow path in demo_loop; read by render_task
         // every frame and forwarded to avatar.set_gaze. Animator-driven
@@ -141,8 +151,39 @@ public:
         std::atomic<std::uint32_t> reconnects{0};
         // Cooperative I2S handoff flag — see audio_stream_active below.
         std::atomic<bool> yielded_i2s{false};
+        // Fine-grained voice / wait state (idle/listening/thinking/speaking).
+        // Distinct from `status` (Talking lumps thinking + speaking). Written
+        // by the conversation task; the expression controller maps it.
+        std::atomic<std::uint8_t> voice_state{
+            static_cast<std::uint8_t>(stackchan::avatar::VoiceState::Idle)};
     };
     Conversation conv;
+
+    void set_voice_state(stackchan::avatar::VoiceState s) noexcept
+    {
+        conv.voice_state.store(static_cast<std::uint8_t>(s), std::memory_order_relaxed);
+        face.activity_seq.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    // `hold_ms == 0` keeps the overlay until `clear_face_overlay`.
+    void request_face_overlay(stackchan::avatar::Expression e, std::uint32_t hold_ms) noexcept
+    {
+        face.overlay_expression.store(static_cast<int>(e), std::memory_order_relaxed);
+        face.overlay_hold_ms.store(hold_ms, std::memory_order_relaxed);
+        face.overlay_seq.fetch_add(1, std::memory_order_release);
+        face.activity_seq.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    void clear_face_overlay() noexcept
+    {
+        face.overlay_expression.store(-1, std::memory_order_relaxed);
+        face.overlay_seq.fetch_add(1, std::memory_order_release);
+    }
+
+    void note_face_activity() noexcept
+    {
+        face.activity_seq.fetch_add(1, std::memory_order_relaxed);
+    }
 
     // --- Battery (demo_loop samples the INA226; UI + services read) --------
     struct Battery {

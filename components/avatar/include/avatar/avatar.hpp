@@ -29,6 +29,12 @@ public:
     Avatar& operator=(Avatar&&) noexcept;
 
     void set_expression(Expression expression) noexcept;
+    void set_voice_state(VoiceState voice) noexcept;
+    // `hold_ms == 0` keeps the overlay until `clear_overlay`.
+    void set_overlay(Expression overlay, std::uint32_t hold_ms) noexcept;
+    void clear_overlay() noexcept;
+    void note_activity() noexcept;
+    Expression resolve_expression(std::uint32_t now_ms) noexcept;
     void set_mouth_open(float ratio) noexcept;
     void set_gaze(float horizontal, float vertical) noexcept;
     void set_palette(const Palette& palette) noexcept;

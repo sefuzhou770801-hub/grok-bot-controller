@@ -108,7 +108,7 @@ conv::ToolDefinition make_set_expression_tool()
         .description = "改变 Stack-chan 的脸部表情。需要表达情绪时使用。",
         .parameters_json = R"({"type":"object","properties":{"expression":{"type":"string",)"
                            R"("enum":["neutral","idle","happy","sad","angry","doubt","sleepy",)"
-                           R"("listening","thinking","excited","curious","confused","surprised","dizzy","affection"]}},)"
+                           R"("listening","thinking","excited","curious","confused","surprised","dizzy","affection","bored"]}},)"
                            R"("required":["expression"]})",
     };
 }
@@ -560,6 +560,24 @@ private:
     {
         local_ = s;
         state_.conv.idle.store(s == Local::Listening, std::memory_order_relaxed);
+        using avatar::VoiceState;
+        VoiceState vs = VoiceState::Idle;
+        switch (s) {
+        case Local::Listening:
+            vs = VoiceState::Listening;
+            break;
+        case Local::Thinking:
+            vs = VoiceState::Thinking;
+            break;
+        case Local::Speaking:
+            vs = VoiceState::Speaking;
+            break;
+        case Local::Init:
+        case Local::Yielded:
+            vs = VoiceState::Idle;
+            break;
+        }
+        state_.set_voice_state(vs);
         // Mask servo motion for the entire reply playback (Speaking). Deriving
         // it from the state — rather than the speaker's isPlaying() — keeps the
         // head still across the brief silences between streamed reply segments,
@@ -882,6 +900,7 @@ private:
 
         case conv::ConversationEventType::SpeechStarted:
             ESP_LOGI(kTag, "user speech started");
+            state_.note_face_activity();
             break;
 
         case conv::ConversationEventType::SpeechStopped:
@@ -894,6 +913,7 @@ private:
 
         case conv::ConversationEventType::UserTranscript:
             ESP_LOGI(kTag, "user: %s", ev.text.c_str());
+            state_.note_face_activity();
             if (!ev.text.empty()) {
                 state_.set_balloon_text(ev.text, /*hold_ms=*/2500);
             }
@@ -948,6 +968,7 @@ private:
             if (const auto expr = parse_emotion(ev.text.c_str())) {
                 ESP_LOGI(kTag, "emotion: %s", ev.text.c_str());
                 state_.face.expression.store(static_cast<int>(*expr), std::memory_order_relaxed);
+                state_.note_face_activity();
             }
             break;
 
@@ -1040,6 +1061,7 @@ private:
         std::string result;
         if (expr) {
             state_.face.expression.store(static_cast<int>(*expr), std::memory_order_relaxed);
+            state_.note_face_activity();
             result = R"({"ok":true})";
         } else {
             result = R"({"ok":false,"error":"unknown expression"})";
