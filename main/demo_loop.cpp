@@ -126,7 +126,8 @@ constexpr const char* kTag = "stackchan";
     };
     bool head_pet_touch_active = false;
     bool head_pet_restore_pending = false;
-    std::uint64_t head_pet_overlay_cmd = 0; // 本任务最近发布的覆盖命令（条件清除凭据）
+    std::uint32_t head_pet_overlay_cmd = 0; // 本任务最近发布的覆盖命令（条件清除凭据）
+    std::uint32_t gesture_overlay_cmd = 0;  // 屏幕手势最近发布的覆盖命令（条件清除凭据）
     float head_pet_prev_yaw = 0.0f;
     float head_pet_prev_pitch = 0.0f;
     std::uint32_t head_pet_restore_at_ms = 0;
@@ -256,8 +257,11 @@ constexpr const char* kTag = "stackchan";
         app::screens::poll_inputs();
         {
             const auto td = M5.Touch.getDetail();
-            const bool conv_speaking = g_state->conv.active.load(std::memory_order_relaxed) &&
-                                       !g_state->conv.idle.load(std::memory_order_relaxed);
+            // 只有真正播报中才禁表情手势并武装 barge-in；Thinking 属于等待，
+            // 触摸交互照常（瞬时覆盖在仲裁里本来就压过思考脸）。
+            const bool conv_speaking =
+                static_cast<stackchan::avatar::VoiceState>(g_state->conv.voice_state.load(
+                    std::memory_order_relaxed)) == stackchan::avatar::VoiceState::Speaking;
             const bool barge_in_armed = g_state->barge_in_enabled.load(std::memory_order_relaxed) && conv_speaking;
             // Overlay flicks still switch tabs while the UI is shown.
             // FaceInput only sees leftover motion after that.
@@ -322,9 +326,9 @@ constexpr const char* kTag = "stackchan";
                 g_state->note_face_activity();
             }
             if (intent == Intent::StrokeRestore || intent == Intent::DizzyEnd) {
-                // 只清本任务（摸头）发布的覆盖；别处的新覆盖不受影响。
-                if (g_state->clear_face_overlay_if(head_pet_overlay_cmd)) {
-                    head_pet_overlay_cmd = 0;
+                // 只清屏幕手势自己发布的覆盖；其他来源的新覆盖不受影响。
+                if (g_state->clear_face_overlay_if(gesture_overlay_cmd)) {
+                    gesture_overlay_cmd = 0;
                 }
             } else if (intent == Intent::FlickLeft || intent == Intent::FlickRight) {
                 std::int16_t next = static_cast<std::int16_t>(
@@ -346,7 +350,7 @@ constexpr const char* kTag = "stackchan";
                     (intent == Intent::Stroke || intent == Intent::DizzyStart)
                         ? 0
                         : avatar::ExpressionController::kDefaultOverlayHoldMs;
-                g_state->request_face_overlay(next, hold_ms);
+                gesture_overlay_cmd = g_state->request_face_overlay(next, hold_ms);
                 if (g_board != nullptr) {
                     const std::uint16_t ms = intent == Intent::DizzyStart ? 80 : 30;
                     (void)g_board->vibrate(ms);
@@ -464,6 +468,10 @@ constexpr const char* kTag = "stackchan";
             }
 
             const bool firmly_touched = reading.firmly_touched();
+            if (reading.any_touched()) {
+                // 轻触也算理它：立即唤回闲置衰减（规格：任何触摸立即唤回）。
+                g_state->note_face_activity();
+            }
             if (firmly_touched && !head_pet_touch_active && !external_servo_control) {
                 if (!head_pet_restore_pending) {
                     head_pet_prev_yaw = g_state->servo.target_yaw_deg.load(std::memory_order_relaxed);

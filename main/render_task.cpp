@@ -103,7 +103,7 @@ void render_task_entry(void* arg) {
     std::int32_t last_expression = -1;
     std::int32_t last_mood = -1;
     std::int32_t last_voice = -1;
-    std::uint64_t last_overlay_cmd = 0;
+    std::uint32_t last_overlay_cmd = 0;
     std::uint32_t last_activity_seq = 0;
     std::uint32_t last_balloon_version = 0;
     std::uint32_t last_face_config_version = 0;
@@ -199,15 +199,14 @@ void render_task_entry(void* arg) {
         }
         // One atomic word per overlay command: a concurrent writer can never
         // hand us the expression of one command and the hold of another.
-        const std::uint64_t overlay_cmd =
-            args.state->face.overlay_command.load(std::memory_order_acquire);
+        const std::uint32_t overlay_cmd = args.state->face.overlay_command.load(std::memory_order_acquire);
         if (overlay_cmd != last_overlay_cmd) {
             last_overlay_cmd = overlay_cmd;
             if ((overlay_cmd & app::SharedState::kOverlayValidBit) == 0) {
                 avatar.clear_overlay();
             } else {
-                const auto expr = static_cast<avatar::Expression>((overlay_cmd >> 32) & 0xFF);
-                const auto hold = static_cast<std::uint32_t>(overlay_cmd & 0xFFFFFFFFu);
+                const auto expr = static_cast<avatar::Expression>((overlay_cmd >> 15) & 0xFF);
+                const auto hold = overlay_cmd & 0x7FFFu;
                 avatar.set_overlay(expr, hold);
             }
         }

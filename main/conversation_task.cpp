@@ -71,10 +71,9 @@ constexpr std::uint32_t kJitterBufferMs = 300;
 // Mic / speaker I2S handoff settle time (matches the existing audio code).
 constexpr TickType_t kI2sSettle = pdMS_TO_TICKS(20);
 
-// Last-resort recovery from a genuinely stuck "Thinking" (connection died
-// without an event). Deliberately long: the spec keeps the thinking face for
-// the WHOLE wait (LLM request in flight, tool call running), so this must
-// only fire on failures, never on a slow-but-alive request.
+// Health-check cadence while Thinking: an alive session keeps the thinking
+// face indefinitely (the spec holds it until the result returns); only a
+// dead session recovers. This is a check interval, not a face deadline.
 constexpr std::uint32_t kThinkingTimeoutMs = 60000;
 
 // Recover from a stuck "Speaking" (assistant playback drained but the
@@ -614,8 +613,18 @@ private:
             break;
         case Local::Thinking:
             if (now_ms() - thinking_since_ms_ > kThinkingTimeoutMs) {
-                ESP_LOGW(kTag, "thinking timed out, returning to listening");
-                enter_listening();
+                // The spec keeps the thinking face for the whole wait. A slow
+                // but alive request keeps waiting (with a periodic warning);
+                // only a dead session recovers here — transport errors also
+                // recover through their own event paths.
+                if (!state_.conv.active.load(std::memory_order_relaxed)) {
+                    ESP_LOGW(kTag, "thinking with dead session → recover");
+                    recover_after_error(/*from_failure=*/true);
+                } else {
+                    ESP_LOGW(kTag, "thinking > %u ms, request still in flight — keep waiting",
+                             static_cast<unsigned>(kThinkingTimeoutMs));
+                    thinking_since_ms_ = now_ms();
+                }
             } else {
                 vTaskDelay(pdMS_TO_TICKS(10));
             }

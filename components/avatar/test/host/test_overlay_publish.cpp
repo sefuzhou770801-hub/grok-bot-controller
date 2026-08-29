@@ -21,17 +21,17 @@ int main() {
     // consistent — the hold encodes the same thread id as the expression.
     {
         SharedState st;
-        constexpr int kThreads = 4;
-        constexpr int kIters = 20000;
+        constexpr std::size_t kThreads = 4;
+        constexpr std::int32_t kIters = 20000;
         std::atomic<bool> stop{false};
-        std::atomic<int> torn{0};
+        std::atomic<std::int32_t> torn{0};
 
         std::thread reader([&] {
             while (!stop.load(std::memory_order_relaxed)) {
-                const std::uint64_t cmd = st.face.overlay_command.load(std::memory_order_acquire);
+                const std::uint32_t cmd = st.face.overlay_command.load(std::memory_order_acquire);
                 if ((cmd & SharedState::kOverlayValidBit) != 0) {
-                    const auto expr = static_cast<std::uint8_t>((cmd >> 32) & 0xFF);
-                    const auto hold = static_cast<std::uint32_t>(cmd & 0xFFFFFFFFu);
+                    const auto expr = static_cast<std::uint8_t>((cmd >> 15) & 0xFF);
+                    const auto hold = cmd & 0x7FFFu;
                     // Publisher t writes expression t and hold 1000 + t.
                     if (hold != 1000u + expr) {
                         torn.fetch_add(1, std::memory_order_relaxed);
@@ -41,9 +41,9 @@ int main() {
         });
 
         std::vector<std::thread> writers;
-        for (int t = 0; t < kThreads; ++t) {
+        for (std::size_t t = 0; t < kThreads; ++t) {
             writers.emplace_back([&, t] {
-                for (int i = 0; i < kIters; ++i) {
+                for (std::int32_t i = 0; i < kIters; ++i) {
                     st.request_face_overlay(static_cast<Expression>(t), 1000u + static_cast<std::uint32_t>(t));
                 }
             });
@@ -59,8 +59,8 @@ int main() {
     // A stale clear must not remove a newer overlay from another source.
     {
         SharedState st;
-        const std::uint64_t mine = st.request_face_overlay(Expression::Happy, 0);
-        const std::uint64_t newer = st.request_face_overlay(Expression::Listening, 5000);
+        const std::uint32_t mine = st.request_face_overlay(Expression::Happy, 0);
+        const std::uint32_t newer = st.request_face_overlay(Expression::Listening, 5000);
         CHECK(!st.clear_face_overlay_if(mine));
         CHECK(st.face.overlay_command.load() == newer);
         CHECK(st.clear_face_overlay_if(newer));

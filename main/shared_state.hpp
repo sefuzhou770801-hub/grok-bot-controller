@@ -81,12 +81,14 @@ public:
         std::atomic<int> expression{static_cast<int>(stackchan::avatar::Expression::Neutral)};
         // Interactive overlay, published as ONE atomic word so concurrent
         // writers (touch loop, wake word, MCP) can never interleave halves
-        // of two commands. Layout (see pack_overlay_command):
-        //   [63]    valid — the atomic stand-in for std::optional
-        //   [47:40] sequence — retriggers the same face
-        //   [39:32] expression (u8)
-        //   [31:0]  hold_ms (0 = sticky until clear)
-        std::atomic<std::uint64_t> overlay_command{0};
+        // of two commands. 32-bit so it stays lock-free on the 32-bit
+        // ESP32-S3 target (this file requires lock-free leaves). Layout
+        // (see pack_overlay_command):
+        //   [31]    valid — the atomic stand-in for std::optional
+        //   [30:23] sequence — retriggers the same face
+        //   [22:15] expression (u8)
+        //   [14:0]  hold_ms, capped at kOverlayHoldCapMs (0 = sticky)
+        std::atomic<std::uint32_t> overlay_command{0};
         // Bumped on touch / wake / message so idle decay snaps back.
         std::atomic<std::uint32_t> activity_seq{0};
         // External gaze target (Avatar::set_gaze inputs). Updated by the
@@ -166,13 +168,15 @@ public:
         face.activity_seq.fetch_add(1, std::memory_order_relaxed);
     }
 
-    static constexpr std::uint64_t kOverlayValidBit = 1ull << 63;
+    static constexpr std::uint32_t kOverlayValidBit = 1u << 31;
+    // 15-bit hold field: overlays are short by design (seconds); 0 = sticky.
+    static constexpr std::uint32_t kOverlayHoldCapMs = 0x7FFFu;
 
-    static constexpr std::uint64_t pack_overlay_command(bool valid, std::uint8_t seq,
-                                                        std::uint8_t expression,
+    static constexpr std::uint32_t pack_overlay_command(bool valid, std::uint8_t seq, std::uint8_t expression,
                                                         std::uint32_t hold_ms) noexcept {
-        return (valid ? kOverlayValidBit : 0ull) | (static_cast<std::uint64_t>(seq) << 40) |
-               (static_cast<std::uint64_t>(expression) << 32) | hold_ms;
+        const std::uint32_t hold = hold_ms > kOverlayHoldCapMs ? kOverlayHoldCapMs : hold_ms;
+        return (valid ? kOverlayValidBit : 0u) | (static_cast<std::uint32_t>(seq) << 23) |
+               (static_cast<std::uint32_t>(expression) << 15) | hold;
     }
 
     // `hold_ms == 0` keeps the overlay until a clear. The whole command
@@ -195,7 +199,7 @@ public:
     // Conditional clear: only removes the overlay if it is still exactly the
     // command this caller published. A newer overlay from another source
     // survives a stale restore/end-of-gesture path.
-    bool clear_face_overlay_if(std::uint64_t expected) noexcept {
+    bool clear_face_overlay_if(std::uint32_t expected) noexcept {
         if ((expected & kOverlayValidBit) == 0) {
             return false;
         }
