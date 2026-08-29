@@ -24,7 +24,11 @@ namespace stackchan::app {
 namespace {
 
 constexpr const char* kTag = "render";
+// Frame pacing: the target period has the frame's own draw time deducted, so
+// the face actually runs near the target instead of target-plus-draw-time.
+// Early-exit paths (screen off / overlay) keep the relaxed cadence.
 constexpr TickType_t kPeriodTicks = pdMS_TO_TICKS(33);
+constexpr std::uint32_t kTargetFrameMs = 17; // ~60 fps when drawing fits
 
 using avatar::RichCanvas;
 
@@ -77,6 +81,8 @@ void render_task_entry(void* arg) {
     // time (AtomS3 slim profile) esp_psram_get_size is removed from the
     // build, so guard the call out and force the direct path.
 #if CONFIG_SPIRAM
+    // direct 路径实测（2026-08-29）：帧率升到 10-16fps 但无双缓冲持续频闪，
+    // 已回退 buffered。帧率结构优化（内部 RAM 画布/脏矩形）另行排期。
     const bool has_psram = esp_psram_get_size() > 0;
 #else
     const bool has_psram = false;
@@ -242,9 +248,32 @@ void render_task_entry(void* arg) {
             args.state->notify_balloon_complete();
         }
 
-        // Use vTaskDelay (not vTaskDelayUntil) so the IDLE task on this core
-        // always gets at least one tick, even if a frame ran long.
-        vTaskDelay(kPeriodTicks);
+        // Deduct this frame's draw time from the target period. Keep at
+        // least one tick of sleep so the IDLE task on this core always runs
+        // (watchdog feeding), even when a frame overruns the budget.
+        {
+            const std::uint32_t frame_end = static_cast<std::uint32_t>(esp_timer_get_time() / 1000);
+            const std::uint32_t spent = frame_end - now_ms;
+            TickType_t rest = spent >= kTargetFrameMs ? 1 : pdMS_TO_TICKS(kTargetFrameMs - spent);
+            if (rest < 1) {
+                rest = 1;
+            }
+            vTaskDelay(rest);
+
+            // Coarse FPS log every ~5 s so real-device rate is visible.
+            static std::uint32_t fps_frames = 0;
+            static std::uint32_t fps_window_start = 0;
+            ++fps_frames;
+            if (fps_window_start == 0) {
+                fps_window_start = frame_end;
+            } else if (frame_end - fps_window_start >= 5000) {
+                ESP_LOGI(kTag, "render ~%u fps (draw %u ms this frame)",
+                         static_cast<unsigned>(fps_frames * 1000u / (frame_end - fps_window_start)),
+                         static_cast<unsigned>(spent));
+                fps_frames = 0;
+                fps_window_start = frame_end;
+            }
+        }
     }
 }
 

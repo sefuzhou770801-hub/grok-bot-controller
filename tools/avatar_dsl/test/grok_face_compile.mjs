@@ -40,24 +40,6 @@ for (const [name, value] of Object.entries(kkFaces)) {
     throw new Error(`grok_face.avdsl missing ${name} keyframe`);
   }
 }
-if (SymbolicConsts.NEUTRAL !== 0 || SymbolicConsts.IDLE !== 0) {
-  throw new Error('Neutral/Idle must stay 0 (KK Idle)');
-}
-if (SymbolicConsts.SLEEPY !== 5) {
-  throw new Error('original six must keep Sleepy = 5');
-}
-const kkFaces = {
-  LISTENING: 6, THINKING: 7, EXCITED: 8, CURIOUS: 9,
-  CONFUSED: 10, SURPRISED: 11, DIZZY: 12,
-};
-for (const [name, value] of Object.entries(kkFaces)) {
-  if (SymbolicConsts[name] !== value) {
-    throw new Error(`${name} must be ${value}, got ${SymbolicConsts[name]}`);
-  }
-  if (!src.includes(name)) {
-    throw new Error(`grok_face.avdsl missing ${name} keyframe`);
-  }
-}
 const buf = compile(src);
 const dv = new DataView(buf);
 const u8 = new Uint8Array(buf);
