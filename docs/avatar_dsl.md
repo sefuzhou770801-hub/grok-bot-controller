@@ -20,8 +20,8 @@ SPDX-License-Identifier: BSL-1.0
 - **エンジン**: ファーム内 `components/avatar_vm/` (C++20 / `tl::expected`)、
   WASM プレビュー (`avatar_module.js`) でも同じ VM が動く
 - **配信**: Wi-Fi 経由の `POST /api/avatar-dsl` で NVS に保存 → 即適用
-- **デフォルト顔**: [assets/default_face.avdsl](https://github.com/ciniml/stackchan-idf/blob/main/assets/default_face.avdsl)
-  (ビルド時にコンパイルされ firmware に embed)
+- **デフォルト顔**: [assets/grok_face.avdsl](https://github.com/ciniml/stackchan-idf/blob/main/assets/grok_face.avdsl)
+  (ビルド時にコンパイルされ firmware に embed。`default_face.avdsl` はプリセットとして残る)
 
 ---
 
@@ -213,7 +213,11 @@ end_group()
 | `eye_open` | float | 0..1 | まばたき (0 = 閉) |
 | `gaze_h`, `gaze_v` | float | -1..+1 | 視線サッカード |
 | `mouth_open` | float | 0..1 | 口の開き |
-| `expr` | enum | 0..5 | 表情 (下記定数で名前指定可) |
+| `expr` | enum | 0..5 | 表情 (下記定数で名前指定可)。遷移中は **行き先** |
+| `expr_from` | enum | 0..5 | 表情遷移の **出発点**。アイドル時は `expr` と同じ |
+| `expr_blend` | float | 0..1 | 表情遷移の緩動進度。0 = 完全に from ポーズ、1 = 完全に `expr` |
+| `expr_hold_to` | enum | 0..5 | 中断された遷移の行き先。アイドル時は `expr_from` と同じ |
+| `expr_hold_blend` | float | 0..1 | 中断ポーズの混合比。from ポーズ = lerp(`expr_from`, `expr_hold_to`, `expr_hold_blend`) |
 | `primary` | u16 → float | RGB565 | 前景色 (デフォルト 白 `0xFFFF`) |
 | `background` | u16 → float | RGB565 | 背景色 (デフォルト 黒 `0x0000`) |
 | `secondary` | u16 → float | RGB565 | 予約色 (デフォルト 黄 `0xFFE0`) |
@@ -436,9 +440,11 @@ end
 | 0x04 | `breath` | 0x0E | `balloon_bg` | 0x18 | `mouth_min_h` |
 | 0x05 | `eye_open` | 0x0F | `eye_radius` | 0x19 | `mouth_max_h` |
 | 0x06 | `gaze_h` | 0x10 | `eye_off_x` | 0x1A | `eyebrows_visible` |
-| 0x07 | `gaze_v` | 0x11 | `eye_off_y` | | |
-| 0x08 | `mouth_open` | 0x12 | `brow_off_x` | | |
-| 0x09 | `expr` | 0x13 | `brow_off_y` | | |
+| 0x07 | `gaze_v` | 0x11 | `eye_off_y` | 0x1B | `cheeks_visible` |
+| 0x08 | `mouth_open` | 0x12 | `brow_off_x` | 0x1C | `cheek_radius` |
+| 0x09 | `expr` | 0x13 | `brow_off_y` | 0x1D | `cheek_off_x` |
+| 0x1E | `cheek_off_y` | 0x1F | `expr_from` | 0x20 | `expr_blend` |
+| 0x21 | `expr_hold_to` | 0x22 | `expr_hold_blend` | | |
 
 > 真実源: [components/avatar_vm/include/avatar_vm/opcodes.hpp](https://github.com/ciniml/stackchan-idf/blob/main/components/avatar_vm/include/avatar_vm/opcodes.hpp)
 > (C++ 側) / [tools/avatar_dsl/opcodes.js](https://github.com/ciniml/stackchan-idf/blob/main/tools/avatar_dsl/opcodes.js) (JS 側 ミラー)

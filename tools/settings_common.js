@@ -140,25 +140,25 @@
                    !window.AVATAR_DSL_DEFAULT_SOURCE.includes('{{AVATAR_DSL_DEFAULT_SOURCE}}')
                      ? window.AVATAR_DSL_DEFAULT_SOURCE : '');
     if (compilerOk) {
-      setMsg('準備完了 — Ctrl/Cmd+Enter または「コンパイル & 送信」で反映');
+      setMsg('已就绪：Ctrl/Cmd+Enter 或点「编译并发送」即可生效');
     }
 
     let lastBuf = null; // last successfully-compiled bytecode (for download)
 
     function compileNow() {
       if (!compilerOk) {
-        setMsg('DSL コンパイラ が読込めていないためコンパイルできません', 'err');
+        setMsg('未能加载 DSL 编译器，无法编译', 'err');
         return null;
       }
       const t0 = performance.now();
       let buf;
       try { buf = window.AvatarDsl.compile(srcEl.value); }
       catch (e) {
-        setMsg('コンパイル エラー: ' + e.message, 'err');
+        setMsg('编译错误：' + e.message, 'err');
         return null;
       }
       const compileMs = performance.now() - t0;
-      setMsg(`OK — ${buf.byteLength} bytes, コンパイル ${compileMs.toFixed(1)} ms`, 'ok');
+      setMsg(`完成，${buf.byteLength} 字节，编译 ${compileMs.toFixed(1)} ms`, 'ok');
       lastBuf = buf;
       return buf;
     }
@@ -170,20 +170,20 @@
       try {
         const r = await transport.send(u8, onProgress);
         if (r.ok && r.saved != null) {
-          setMsg(`${label}送信完了 — NVS に ${r.saved} バイト保存${r.note || ''}`, 'ok');
-          log(`Avatar DSL 送信 OK (${r.saved} B)`, 'ok');
+          setMsg(`${label}发送完成，已向 NVS 保存 ${r.saved} 字节${r.note || ''}`, 'ok');
+          log(`Avatar DSL 发送成功（${r.saved} B）`, 'ok');
           return true;
         }
         if (r.ok) {
-          setMsg(`${label}送信完了 — レスポンス: ` + r.raw, 'ok');
-          log('Avatar DSL 送信 OK', 'ok');
+          setMsg(`${label}发送完成，响应：` + r.raw, 'ok');
+          log('Avatar DSL 发送成功', 'ok');
           return true;
         }
-        setMsg(`${label}送信失敗 — ${r.error || 'unknown'}`, 'err');
-        log(`Avatar DSL 送信失敗: ${r.error}`, 'err');
+        setMsg(`${label}发送失败：${r.error || 'unknown'}`, 'err');
+        log(`Avatar DSL 发送失败：${r.error}`, 'err');
       } catch (e) {
-        setMsg('送信エラー: ' + e.message, 'err');
-        log('Avatar DSL 送信 失敗: ' + e.message, 'err');
+        setMsg('发送错误：' + e.message, 'err');
+        log('Avatar DSL 发送失败：' + e.message, 'err');
       }
       return false;
     }
@@ -194,10 +194,10 @@
       if (!buf) return;
       sendBtn.disabled = true;
       const oldText = sendBtn.textContent;
-      sendBtn.textContent = '送信中…';
+      sendBtn.textContent = '发送中…';
       try {
         await sendBytes(new Uint8Array(buf), '', (sent, total) => {
-          sendBtn.textContent = `送信中… ${sent}/${total} B`;
+          sendBtn.textContent = `发送中… ${sent}/${total} B`;
         });
       } finally {
         sendBtn.textContent = oldText;
@@ -214,10 +214,9 @@
       }
     });
 
-    // Preset selector: load source + send. For the first preset (= firmware
-    // embedded default) issue a reset instead of re-uploading the same
-    // bytecode — leaves the NVS slot empty so future boots use the embedded
-    // copy without any persisted override.
+    // Preset selector: load source and send the compiled bytecode. Reset is
+    // a separate control: it clears NVS and returns to Clawd RLE, which is
+    // not any of these DSL presets.
     presetEl.addEventListener('change', async () => {
       const name = presetEl.value;
       const src = presetMap[name];
@@ -225,36 +224,25 @@
       srcEl.value = src;
       lastBuf = null;
       if (!transport.isConnected()) {
-        setMsg(transport.notConnectedMsg + ' — テキストだけ反映しました', 'err');
+        setMsg(transport.notConnectedMsg + '：仅更新了文本', 'err');
         return;
       }
-      if (presets[0] && name === presets[0].name) {
-        try {
-          const r = await transport.reset();
-          setMsg(`プリセット「${name}」を読込み — 実機を内蔵デフォルトに復帰` +
-                 (r.raw ? ` (${r.raw})` : ''), 'ok');
-          log(`Avatar DSL プリセット ${name} (reset)`, 'ok');
-        } catch (e) {
-          setMsg('リセット失敗: ' + e.message, 'err');
-        }
-      } else {
-        await compileAndSend();
-      }
+      await compileAndSend();
     });
 
     resetBtn.addEventListener('click', async () => {
       if (!transport.isConnected()) { setMsg(transport.notConnectedMsg, 'err'); return; }
-      if (!confirm('実機の顔を firmware 内蔵 デフォルトに戻します (NVS の override を削除)。よろしいですか?')) return;
+      if (!confirm('将删除 NVS 中的面部覆盖并回到 Clawd。确定吗？')) return;
       const oldText = resetBtn.textContent;
       resetBtn.disabled = true;
-      resetBtn.textContent = '送信中…';
+      resetBtn.textContent = '发送中…';
       try {
         const r = await transport.reset();
-        setMsg(`実機をデフォルト顔に戻しました${r.raw ? ` (${r.raw})` : ''}`, 'ok');
-        log('Avatar DSL リセット', 'ok');
+        setMsg(`已删除面部覆盖，真机回到 Clawd${r.raw ? ` (${r.raw})` : ''}`, 'ok');
+        log('Avatar DSL 重置', 'ok');
       } catch (e) {
-        setMsg('リセット失敗: ' + e.message, 'err');
-        log('Avatar DSL リセット失敗: ' + e.message, 'err');
+        setMsg('重置失败：' + e.message, 'err');
+        log('Avatar DSL 重置失败：' + e.message, 'err');
       } finally {
         resetBtn.textContent = oldText;
         resetBtn.disabled = !transport.isConnected();
@@ -288,7 +276,7 @@
       const r = new FileReader();
       r.onload = () => {
         srcEl.value = r.result;
-        setMsg('読込みました — 「コンパイル & 送信」で実機に反映してください');
+        setMsg('已读取：请点「编译并发送」同步到真机');
       };
       r.readAsText(f);
       e.target.value = '';
@@ -305,9 +293,9 @@
         if (!f) return;
         if (!transport.isConnected()) { setMsg(transport.notConnectedMsg, 'err'); return; }
         const buf = new Uint8Array(await f.arrayBuffer());
-        setMsg(`${f.name} (${buf.length} B) を送信中…`);
+        setMsg(`${f.name}（${buf.length} B）发送中…`);
         const ok = await sendBytes(buf, `${f.name} `, (sent, total) => {
-          setMsg(`${f.name} 送信中… ${sent}/${total} B`);
+          setMsg(`${f.name} 发送中… ${sent}/${total} B`);
         });
         if (ok) {
           lastBuf = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
@@ -390,7 +378,7 @@
         if (el) el.disabled = !ok;
       }
       const btn = $id('sv-range-mode');
-      btn.textContent = '範囲設定モード: ' + (rangeOn ? 'ON' : 'OFF');
+      btn.textContent = '范围设置模式: ' + (rangeOn ? 'ON' : 'OFF');
       btn.disabled = !transport.canToggle();
     }
 
@@ -430,14 +418,14 @@
         refreshUi();
         restartPoll();
         if (on) {
-          log('範囲設定モード: ON (サーボの力が抜けます)', 'ok');
+          log('范围设置模式: ON（舵机卸力）', 'ok');
         } else {
-          log('範囲設定モード: OFF');
+          log('范围设置模式: OFF');
           liveYaw = livePitch = -1;
           clearLiveDisplay();
         }
       } catch (e) {
-        log('範囲設定モード切替失敗: ' + e.message, 'err');
+        log('切换范围设置模式失败：' + e.message, 'err');
       }
     }
 
@@ -462,7 +450,7 @@
 
     function capture(axis, which) {
       const live = axis === 'yaw' ? liveYaw : livePitch;
-      if (live < 0) { log('まだサーボ位置を取得できていません', 'err'); return; }
+      if (live < 0) { log('尚未获取舵机位置', 'err'); return; }
       const zeroId = `sv-${axis}-zero`;
       if (which === 'zero') {
         $id(zeroId).value = live;
@@ -524,13 +512,13 @@
     const authClear = $id('btn-auth-password-clear');
     if (authEl && authClear) {
       authClear.addEventListener('click', () => {
-        if (!confirm('認証なし (空欄) に戻します。保存 & 再起動で反映されます。よろしいですか?')) {
+        if (!confirm('将恢复为无认证（空）。保存并重启后生效。确定吗？')) {
           return;
         }
         authEl.value = '';
         authEl.dataset.cleared = '1';
         const hintEl = $id('auth-password-state');
-        if (hintEl) hintEl.textContent = '(クリア予約 — 保存で空欄を送信)';
+        if (hintEl) hintEl.textContent = '（已预约清除：保存时发送空值）';
       });
     }
   }

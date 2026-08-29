@@ -32,18 +32,18 @@ using avatar::RichCanvas;
 // frame as the face — drawing after present flickers). `pct` is 0..100; values
 // < 0 are filtered out by the caller. Wrapped in a group so the direct strategy
 // composites it off-screen.
-void draw_battery_gauge(RichCanvas& canvas, int pct)
-{
+void draw_battery_gauge(RichCanvas& canvas, int pct) {
     constexpr int x = 6, y = 6, w = 34, h = 16; // battery body
-    constexpr int nub_w = 3, nub_h = 6;          // positive terminal nub
-    if (pct < 0) pct = 0;
-    if (pct > 100) pct = 100;
+    constexpr int nub_w = 3, nub_h = 6;         // positive terminal nub
+    if (pct < 0)
+        pct = 0;
+    if (pct > 100)
+        pct = 100;
 
     const std::uint16_t white = canvas.color565(235, 235, 235);
     const std::uint16_t black = canvas.color565(0, 0, 0);
     const std::uint16_t fill = pct >= 50 ? canvas.color565(80, 220, 120)
-                              : (pct >= 20 ? canvas.color565(235, 200, 90)
-                                           : canvas.color565(230, 110, 110));
+                                         : (pct >= 20 ? canvas.color565(235, 200, 90) : canvas.color565(230, 110, 110));
 
     canvas.begin_group(x - 1, y - 1, w + nub_w + 44, h + 2);
     // Backing panel behind the icon + text so it stays legible over the face.
@@ -72,8 +72,7 @@ void draw_battery_gauge(RichCanvas& canvas, int pct)
 // silent. Drawn in the top-left corner — on touch boards the same corner is
 // the tap zone (device_ui::handle_tap) that toggles the flag, so the badge
 // doubles as the "tap here to unmute" affordance.
-void draw_mute_badge(RichCanvas& canvas, int x, int y)
-{
+void draw_mute_badge(RichCanvas& canvas, int x, int y) {
     constexpr int w = 34, h = 16;
     const std::uint16_t white = canvas.color565(235, 235, 235);
     const std::uint16_t black = canvas.color565(0, 0, 0);
@@ -92,8 +91,7 @@ void draw_mute_badge(RichCanvas& canvas, int x, int y)
     canvas.end_group();
 }
 
-void render_task_entry(void* arg)
-{
+void render_task_entry(void* arg) {
     auto& args = *static_cast<RenderTaskArgs*>(arg);
     M5GFX& display = *args.display;
     SharedState* state = args.state;
@@ -124,20 +122,22 @@ void render_task_entry(void* arg)
 #endif
     if (has_psram && buffered.begin(canvas_w, canvas_h)) {
         cv = &buffered;
-        ESP_LOGI(kTag, "PSRAM detected: buffered full-screen framebuffer (%dx%d)",
-                 static_cast<int>(canvas_w), static_cast<int>(canvas_h));
+        ESP_LOGI(kTag, "PSRAM detected: buffered full-screen framebuffer (%dx%d)", static_cast<int>(canvas_w),
+                 static_cast<int>(canvas_h));
     } else {
         direct.begin();
         cv = &direct;
-        ESP_LOGI(kTag, "no PSRAM framebuffer: direct + partial-buffer rendering (%dx%d)",
-                 static_cast<int>(canvas_w), static_cast<int>(canvas_h));
+        ESP_LOGI(kTag, "no PSRAM framebuffer: direct + partial-buffer rendering (%dx%d)", static_cast<int>(canvas_w),
+                 static_cast<int>(canvas_h));
     }
     RichCanvas& canvas = *cv;
 
     avatar::Avatar avatar;
     clawd_face::Renderer clawd_face;
     const bool clawd_ready = clawd_face.begin(canvas_w, canvas_h);
-    bool avatar_vm_selected = !clawd_ready;
+    // Factory default is the embedded Grok DSL. Clawd RLE is the fallback when
+    // the VM has no face, and the restore path when the user clears an override.
+    bool avatar_vm_selected = true;
 
     int last_expression = -1;
     std::uint32_t last_balloon_version = 0;
@@ -250,10 +250,10 @@ void render_task_entry(void* arg)
             last_balloon_version = balloon_version;
         }
 
-        // Clawd RLE is the default face. Avatar VM remains available through
-        // the existing face-bytecode override path; clearing the override
-        // returns to Clawd when the assets partition is usable.
-        const bool render_clawd = clawd_ready && !avatar_vm_selected;
+        // Grok (Avatar VM) is the factory face. Clearing a bytecode override
+        // returns to Clawd when the assets partition is usable; a failed VM
+        // decode also falls back to Clawd so the panel is never left blank.
+        const bool render_clawd = clawd_ready && (!avatar_vm_selected || !avatar.has_face());
         if (render_clawd) {
             clawd_face.render(now_ms, canvas);
         } else {
@@ -276,9 +276,7 @@ void render_task_entry(void* arg)
         // panels (StopWatch) inset it to the inscribed square so it stays
         // on the visible circle.
         if (state->speaker.muted.load(std::memory_order_relaxed)) {
-            const int inset = args.circular_display
-                ? static_cast<int>(canvas_w * (1.0f - 0.70710678f) * 0.5f) + 4
-                : 6;
+            const int inset = args.circular_display ? static_cast<int>(canvas_w * (1.0f - 0.70710678f) * 0.5f) + 4 : 6;
             draw_mute_badge(canvas, inset, inset + (gauge_shown ? 22 : 0));
         }
 
@@ -297,8 +295,7 @@ void render_task_entry(void* arg)
 
 } // namespace
 
-void start_render_task(RenderTaskArgs& args)
-{
+void start_render_task(RenderTaskArgs& args) {
     xTaskCreatePinnedToCore(render_task_entry, "render", 8192, &args, 5, nullptr, 1);
 }
 

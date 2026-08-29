@@ -86,7 +86,8 @@ jobs:
               _site/settings.html \
               "default=assets/default_face.avdsl" \
               "omega=assets/omega_mouth.avdsl" \
-              "aokko=assets/aokko_face.avdsl"
+              "aokko=assets/aokko_face.avdsl" \
+              "grok=assets/grok_face.avdsl"
           # Shared settings-page helpers — settings.html references this as
           # a sibling <script src="settings_common.js">.
           cp tools/settings_common.js _site/settings_common.js

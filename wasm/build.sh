@@ -72,6 +72,7 @@ PROCESSED_SHELL_REL="$DSL_OUT_REL/shell.processed.html"
 node "$ROOT/tools/avatar_dsl/inject.mjs" \
     "$ROOT/wasm/shell.html" \
     "$PROCESSED_SHELL" \
+    "grok=$ROOT/assets/grok_face.avdsl" \
     "default=$ROOT/assets/default_face.avdsl" \
     "omega=$ROOT/assets/omega_mouth.avdsl" \
     "aokko=$ROOT/assets/aokko_face.avdsl"

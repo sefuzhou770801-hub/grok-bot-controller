@@ -8,8 +8,8 @@
 
 namespace stackchan::avatar_vm {
 
-// Bytes of the build-time-compiled default face bytecode (see
-// assets/default_face.avdsl + CMakeLists.txt). Always available; firmware can
+// Bytes of the build-time-compiled factory face bytecode (see
+// assets/grok_face.avdsl + CMakeLists.txt). Always available; firmware can
 // fall back to this whenever NVS holds no override or the override fails to
 // decode.
 std::span<const std::uint8_t> default_face_bytecode() noexcept;

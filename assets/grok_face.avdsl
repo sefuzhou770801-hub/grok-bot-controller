@@ -1,0 +1,471 @@
+-- SPDX-FileCopyrightText: 2026 Kenta IDA <fuga@fugafuga.org>
+-- SPDX-License-Identifier: BSL-1.0
+--
+-- Grok bot face for the avatar VM DSL. Idle geometry follows the bloub
+-- measurements: a perfectly round body and two asymmetric capsule eyes.
+-- Phase 2 adds sparse, irregular motion derived from now_ms: wink vs
+-- binocular blink, a short eye orbit, speech squash, and two sampled
+-- body morphs (egg, triangle) that return to the circle.
+
+----------------------------------------------------------------------
+-- One triangle in a capsule-eye fan. Blink and expression openness compress
+-- only screen-space Y around the eye centre, matching the measured blink.
+----------------------------------------------------------------------
+fn eye_wedge(cx, cy, x1, y1, x2, y2, openness, color)
+  let sy1 = cy + (y1 - cy) * openness
+  let sy2 = cy + (y2 - cy) * openness
+  fill_triangle(cx, cy, x1, sy1, x2, sy2, color)
+end
+
+----------------------------------------------------------------------
+-- Rounded capsule approximated by a ten-sided convex fan. `lid` is the
+-- per-eye open amount (firmware blink, or a DSL wink that holds the
+-- other eye open).
+----------------------------------------------------------------------
+fn capsule_eye(cx, cy, half_segment, radius, dx, dy, expression_open, lid, color)
+  let openness = clamp(lid * expression_open, 0.06, 1)
+  let px = -dy
+  let py = dx
+  let diagonal = 0.70710678
+
+  let txc = cx - dx * half_segment
+  let tyc = cy - dy * half_segment
+  let bxc = cx + dx * half_segment
+  let byc = cy + dy * half_segment
+
+  let x0 = txc + px * radius
+  let y0 = tyc + py * radius
+  let x1 = txc + (px - dx) * radius * diagonal
+  let y1 = tyc + (py - dy) * radius * diagonal
+  let x2 = txc - dx * radius
+  let y2 = tyc - dy * radius
+  let x3 = txc - (px + dx) * radius * diagonal
+  let y3 = tyc - (py + dy) * radius * diagonal
+  let x4 = txc - px * radius
+  let y4 = tyc - py * radius
+
+  let x5 = bxc - px * radius
+  let y5 = byc - py * radius
+  let x6 = bxc + (dx - px) * radius * diagonal
+  let y6 = byc + (dy - py) * radius * diagonal
+  let x7 = bxc + dx * radius
+  let y7 = byc + dy * radius
+  let x8 = bxc + (px + dx) * radius * diagonal
+  let y8 = byc + (py + dy) * radius * diagonal
+  let x9 = bxc + px * radius
+  let y9 = byc + py * radius
+
+  eye_wedge(cx, cy, x0, y0, x1, y1, openness, color)
+  eye_wedge(cx, cy, x1, y1, x2, y2, openness, color)
+  eye_wedge(cx, cy, x2, y2, x3, y3, openness, color)
+  eye_wedge(cx, cy, x3, y3, x4, y4, openness, color)
+  eye_wedge(cx, cy, x4, y4, x5, y5, openness, color)
+  eye_wedge(cx, cy, x5, y5, x6, y6, openness, color)
+  eye_wedge(cx, cy, x6, y6, x7, y7, openness, color)
+  eye_wedge(cx, cy, x7, y7, x8, y8, openness, color)
+  eye_wedge(cx, cy, x8, y8, x9, y9, openness, color)
+  eye_wedge(cx, cy, x9, y9, x0, y0, openness, color)
+end
+
+----------------------------------------------------------------------
+-- Expression mapping. Body shape is independent; each expression still
+-- only changes capsule proportions, tilt and openness. C++ owns the
+-- from/to ease and two nested holds; this mixes four weighted parameter
+-- sets as a pure function of the current frame.
+----------------------------------------------------------------------
+fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
+  let gx = gaze_h * sz(4) + ox
+  let gy = gaze_v * sz(3) + oy
+  let left_x = tx(160) + (tx(181.42) - tx(160)) * sx + gx
+  let left_y = ty(120) + (ty(76.68) - ty(120)) * sy + gy
+  let right_x = tx(160) + (tx(222.98) - tx(160)) * sx + gx
+  let right_y = ty(120) + (ty(66.10) - ty(120)) * sy + gy
+  let b = clamp(expr_blend, 0, 1)
+  let hb = clamp(expr_hold_blend, 0, 1)
+  let hb2 = clamp(expr_hold2_blend, 0, 1)
+
+  let lhs = 0
+  let lr = 0
+  let ldx = 0
+  let ldy = 0
+  let lo = 0
+  let lx = 0
+  let ly = 0
+  let rhs = 0
+  let rr = 0
+  let rdx = 0
+  let rdy = 0
+  let ro = 0
+  let rx = 0
+  let ry = 0
+
+  let i = 0
+  while i < 4 do
+    let e = expr_from
+    let w = (1 - hb2) * (1 - hb) * (1 - b)
+    if i == 1 then
+      e = expr_hold2_to
+      w = hb2 * (1 - hb) * (1 - b)
+    elif i == 2 then
+      e = expr_hold_to
+      w = hb * (1 - b)
+    elif i == 3 then
+      e = expr
+      w = b
+    end
+
+    let p_lhs = 11.3
+    let p_lr = 9.3
+    let p_ldx = 0.469472
+    let p_ldy = 0.882948
+    let p_lo = 1
+    let p_lx = 0
+    let p_ly = 0
+    let p_rhs = 10.8
+    let p_rr = 7.2
+    let p_rdx = 0.469472
+    let p_rdy = 0.882948
+    let p_ro = 1
+    let p_rx = 0
+    let p_ry = 0
+    if e == HAPPY then
+      p_lhs = 3.5
+      p_lr = 8.5
+      p_ldx = -0.258819
+      p_ldy = 0.965926
+      p_lo = 0.62
+      p_rhs = 3.0
+      p_rr = 7.0
+      p_rdx = 0.258819
+      p_rdy = 0.965926
+      p_ro = 0.62
+    elif e == SAD then
+      p_lhs = 12.0
+      p_lr = 7.5
+      p_ldx = 0.469472
+      p_ldy = 0.882948
+      p_lo = 0.88
+      p_ly = 2
+      p_rhs = 11.0
+      p_rr = 6.5
+      p_rdx = -0.469472
+      p_rdy = 0.882948
+      p_ro = 0.88
+      p_ry = 2
+    elif e == ANGRY then
+      p_lhs = 5.0
+      p_lr = 8.0
+      p_ldx = -0.5
+      p_ldy = 0.866025
+      p_lo = 0.72
+      p_rhs = 4.5
+      p_rr = 6.7
+      p_rdx = 0.5
+      p_rdy = 0.866025
+      p_ro = 0.72
+    elif e == DOUBT then
+      p_lhs = 12.0
+      p_lr = 8.5
+      p_ldx = 0.615661
+      p_ldy = 0.788011
+      p_lo = 1
+      p_lx = -1
+      p_rhs = 4.0
+      p_rr = 7.0
+      p_rdx = 0.173648
+      p_rdy = 0.984808
+      p_ro = 0.48
+      p_rx = 1
+    elif e == SLEEPY then
+      p_lhs = 5.0
+      p_lr = 8.0
+      p_ldx = 0.087156
+      p_ldy = 0.996195
+      p_lo = 0.28
+      p_ly = 4
+      p_rhs = 4.5
+      p_rr = 6.7
+      p_rdx = 0.087156
+      p_rdy = 0.996195
+      p_ro = 0.28
+      p_ry = 4
+    end
+
+    lhs = lhs + p_lhs * w
+    lr = lr + p_lr * w
+    ldx = ldx + p_ldx * w
+    ldy = ldy + p_ldy * w
+    lo = lo + p_lo * w
+    lx = lx + p_lx * w
+    ly = ly + p_ly * w
+    rhs = rhs + p_rhs * w
+    rr = rr + p_rr * w
+    rdx = rdx + p_rdx * w
+    rdy = rdy + p_rdy * w
+    ro = ro + p_ro * w
+    rx = rx + p_rx * w
+    ry = ry + p_ry * w
+    i = i + 1
+  end
+
+  let llen = sqrt(ldx * ldx + ldy * ldy)
+  if llen > 0.0001 then
+    ldx = ldx / llen
+    ldy = ldy / llen
+  end
+  let rlen = sqrt(rdx * rdx + rdy * rdy)
+  if rlen > 0.0001 then
+    rdx = rdx / rlen
+    rdy = rdy / rlen
+  end
+
+  capsule_eye(left_x + lx * canvas_scale * sx, left_y + ly * canvas_scale * sy,
+              sz(lhs) * scale, sz(lr) * scale,
+              ldx, ldy, lo, left_lid, color)
+  capsule_eye(right_x + rx * canvas_scale * sx, right_y + ry * canvas_scale * sy,
+              sz(rhs) * scale, sz(rr) * scale,
+              rdx, rdy, ro, right_lid, color)
+end
+
+----------------------------------------------------------------------
+-- Body fan wedge. Radii are already in pixels; (sx, sy) is speech squash.
+----------------------------------------------------------------------
+fn body_wedge(cx, cy, ux1, uy1, r1, ux2, uy2, r2, sx, sy, color)
+  fill_triangle(cx, cy,
+                cx + ux1 * r1 * sx, cy + uy1 * r1 * sy,
+                cx + ux2 * r2 * sx, cy + uy2 * r2 * sy, color)
+end
+
+----------------------------------------------------------------------
+-- Axis-aligned ellipse via scanlines. Used for speech squash so the
+-- resting circle does not become a 16-gon the moment the mouth opens.
+----------------------------------------------------------------------
+fn fill_ellipse(cx, cy, rx, ry, color)
+  let y = -ry
+  while y <= ry do
+    let ny = y / ry
+    let inside = 1 - ny * ny
+    if inside > 0 then
+      let hw = rx * sqrt(inside)
+      fill_rect(cx - hw, cy + y, hw * 2 + 1, 1, color)
+    end
+    y = y + 1
+  end
+end
+
+----------------------------------------------------------------------
+-- Sixteen-sided body. `which` 1 = egg, 2 = triangle; radii sampled from
+-- bloub src/bot/profiles.ts (64 rays, every 4th sample). morph 0 is a
+-- regular 16-gon, used only while the circle is already leaving rest.
+----------------------------------------------------------------------
+fn grok_body(cx, cy, base_r, morph, which, sx, sy, color)
+  let r0 = base_r
+  let r1 = base_r
+  let r2 = base_r
+  let r3 = base_r
+  let r4 = base_r
+  let r5 = base_r
+  let r6 = base_r
+  let r7 = base_r
+  let r8 = base_r
+  let r9 = base_r
+  let r10 = base_r
+  let r11 = base_r
+  let r12 = base_r
+  let r13 = base_r
+  let r14 = base_r
+  let r15 = base_r
+
+  if which == 1 then
+    r0 = base_r * (1 + (0.8369 - 1) * morph)
+    r1 = base_r * (1 + (0.8674 - 1) * morph)
+    r2 = base_r * (1 + (0.9089 - 1) * morph)
+    r3 = base_r * (1 + (0.9445 - 1) * morph)
+    r4 = base_r * (1 + (0.9555 - 1) * morph)
+    r5 = base_r * (1 + (0.9302 - 1) * morph)
+    r6 = base_r * (1 + (0.8852 - 1) * morph)
+    r7 = base_r * (1 + (0.8411 - 1) * morph)
+    r8 = base_r * (1 + (0.8137 - 1) * morph)
+    r9 = base_r * (1 + (0.8178 - 1) * morph)
+    r10 = base_r * (1 + (0.8702 - 1) * morph)
+    r11 = base_r * (1 + (0.9741 - 1) * morph)
+    r12 = base_r * (1 + (1.0481 - 1) * morph)
+    r13 = base_r * (1 + (0.9697 - 1) * morph)
+    r14 = base_r * (1 + (0.8760 - 1) * morph)
+    r15 = base_r * (1 + (0.8337 - 1) * morph)
+  elif which == 2 then
+    r0 = base_r * (1 + (0.7819 - 1) * morph)
+    r1 = base_r * (1 + (1.0223 - 1) * morph)
+    r2 = base_r * (1 + (1.0808 - 1) * morph)
+    r3 = base_r * (1 + (0.8104 - 1) * morph)
+    r4 = base_r * (1 + (0.7151 - 1) * morph)
+    r5 = base_r * (1 + (0.7427 - 1) * morph)
+    r6 = base_r * (1 + (0.9148 - 1) * morph)
+    r7 = base_r * (1 + (1.1109 - 1) * morph)
+    r8 = base_r * (1 + (0.8482 - 1) * morph)
+    r9 = base_r * (1 + (0.7056 - 1) * morph)
+    r10 = base_r * (1 + (0.6938 - 1) * morph)
+    r11 = base_r * (1 + (0.8040 - 1) * morph)
+    r12 = base_r * (1 + (1.0791 - 1) * morph)
+    r13 = base_r * (1 + (0.9779 - 1) * morph)
+    r14 = base_r * (1 + (0.7656 - 1) * morph)
+    r15 = base_r * (1 + (0.7146 - 1) * morph)
+  end
+
+  -- Unit circle, 22.5 deg steps, clockwise, y down.
+  body_wedge(cx, cy, 1, 0, r0, 0.92387953, 0.38268343, r1, sx, sy, color)
+  body_wedge(cx, cy, 0.92387953, 0.38268343, r1, 0.70710678, 0.70710678, r2, sx, sy, color)
+  body_wedge(cx, cy, 0.70710678, 0.70710678, r2, 0.38268343, 0.92387953, r3, sx, sy, color)
+  body_wedge(cx, cy, 0.38268343, 0.92387953, r3, 0, 1, r4, sx, sy, color)
+  body_wedge(cx, cy, 0, 1, r4, -0.38268343, 0.92387953, r5, sx, sy, color)
+  body_wedge(cx, cy, -0.38268343, 0.92387953, r5, -0.70710678, 0.70710678, r6, sx, sy, color)
+  body_wedge(cx, cy, -0.70710678, 0.70710678, r6, -0.92387953, 0.38268343, r7, sx, sy, color)
+  body_wedge(cx, cy, -0.92387953, 0.38268343, r7, -1, 0, r8, sx, sy, color)
+  body_wedge(cx, cy, -1, 0, r8, -0.92387953, -0.38268343, r9, sx, sy, color)
+  body_wedge(cx, cy, -0.92387953, -0.38268343, r9, -0.70710678, -0.70710678, r10, sx, sy, color)
+  body_wedge(cx, cy, -0.70710678, -0.70710678, r10, -0.38268343, -0.92387953, r11, sx, sy, color)
+  body_wedge(cx, cy, -0.38268343, -0.92387953, r11, 0, -1, r12, sx, sy, color)
+  body_wedge(cx, cy, 0, -1, r12, 0.38268343, -0.92387953, r13, sx, sy, color)
+  body_wedge(cx, cy, 0.38268343, -0.92387953, r13, 0.70710678, -0.70710678, r14, sx, sy, color)
+  body_wedge(cx, cy, 0.70710678, -0.70710678, r14, 0.92387953, -0.38268343, r15, sx, sy, color)
+  body_wedge(cx, cy, 0.92387953, -0.38268343, r15, 1, 0, r0, sx, sy, color)
+end
+
+----------------------------------------------------------------------
+-- Entry point. RGB565:
+--   0xF77D ~= #f1efe9 light background
+--   0x0841 ~= #0a0a0c near-black body
+--   0xFFFF  = white eyes
+--
+-- Clocks (incommensurate periods, offsets so t=0 is idle):
+--   blink hijack  9700 ms windows, kinds 0/1/3 both, 2 left wink, 4 right wink
+--   orbit         period 17900 offset 5900 duration 1200
+--   egg           period 25700 offset 3700 duration 1800
+--   triangle      period 33100 offset 15100 duration 1800
+-- Speech: 14% vertical squash, 4% horizontal stretch, no overshoot.
+----------------------------------------------------------------------
+fn draw()
+  let paper = 0xF77D
+  let body = 0x0841
+  let eyes = 0xFFFF
+
+  let talk = clamp(mouth_open, 0, 1)
+  let sx = 1 + talk * 0.04
+  let sy = 1 - talk * 0.14
+
+  -- Firmware blinks stay binocular in most windows; some windows keep one
+  -- eye open so the same blink reads as a wink. Period 9700 is off the
+  -- other clocks so the pattern does not march.
+  let left_lid = eye_open
+  let right_lid = eye_open
+  let kind = floor((now_ms + 4100) / 9700) % 5
+  if kind == 2 then
+    right_lid = 1
+  elif kind == 4 then
+    left_lid = 1
+  end
+
+  -- Eye orbit: 8-segment circle, amplitude fades in and out.
+  let ox = 0
+  let oy = 0
+  let ot = (now_ms + 5900) % 17900
+  if ot < 1200 then
+    let p = ot / 1200
+    let env = 1
+    if p < 0.12 then
+      env = p / 0.12
+    elif p > 0.88 then
+      env = (1 - p) / 0.12
+    end
+    let amp = sz(12) * env
+    let u = p * 8
+    let seg = floor(u)
+    let f = u - seg
+    let ax = 1
+    let ay = 0
+    let bx = 0.70710678
+    let by = 0.70710678
+    if seg == 1 then
+      ax = 0.70710678
+      ay = 0.70710678
+      bx = 0
+      by = 1
+    elif seg == 2 then
+      ax = 0
+      ay = 1
+      bx = -0.70710678
+      by = 0.70710678
+    elif seg == 3 then
+      ax = -0.70710678
+      ay = 0.70710678
+      bx = -1
+      by = 0
+    elif seg == 4 then
+      ax = -1
+      ay = 0
+      bx = -0.70710678
+      by = -0.70710678
+    elif seg == 5 then
+      ax = -0.70710678
+      ay = -0.70710678
+      bx = 0
+      by = -1
+    elif seg == 6 then
+      ax = 0
+      ay = -1
+      bx = 0.70710678
+      by = -0.70710678
+    elif seg == 7 then
+      ax = 0.70710678
+      ay = -0.70710678
+      bx = 1
+      by = 0
+    end
+    ox = (ax + (bx - ax) * f) * amp
+    oy = (ay + (by - ay) * f) * amp
+  end
+
+  -- Body morph. Egg wins if both windows overlap. One envelope, two clocks.
+  let morph = 0
+  let which = 1
+  let elapsed = -1
+  let et = (now_ms + 3700) % 25700
+  if et < 1800 then
+    elapsed = et
+    which = 1
+  end
+  let tt = (now_ms + 15100) % 33100
+  if elapsed < 0 and tt < 1800 then
+    elapsed = tt
+    which = 2
+  end
+  if elapsed >= 0 then
+    if elapsed < 400 then
+      let u = elapsed / 400
+      morph = u * u * (3 - 2 * u)
+    elif elapsed < 1200 then
+      morph = 1
+    else
+      let u = (1800 - elapsed) / 600
+      morph = u * u * (3 - 2 * u)
+    end
+  end
+
+  fill_rect(0, 0, canvas_w, canvas_h, paper)
+  begin_group(0, 0, canvas_w, canvas_h)
+
+  let cx = tx(160)
+  let cy = ty(120)
+  let base_r = sz(100)
+  let eye_scale = (sx + sy) / 2
+
+  if morph > 0.02 then
+    grok_body(cx, cy, base_r, morph, which, sx, sy, body)
+  elif talk > 0.05 then
+    fill_ellipse(cx, cy, base_r * sx, base_r * sy, body)
+  else
+    fill_circle(cx, cy, base_r, body)
+  end
+  grok_eyes(eye_scale, eyes, ox, oy, left_lid, right_lid, sx, sy)
+  end_group()
+end

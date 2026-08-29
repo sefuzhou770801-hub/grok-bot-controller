@@ -11,3 +11,6 @@ idf_component_register(
         avatar_vm
 )
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_20)
+
+# Render-hot path: keep -O2 under the global -Os (OTA size budget).
+target_compile_options(${COMPONENT_LIB} PRIVATE -O2)

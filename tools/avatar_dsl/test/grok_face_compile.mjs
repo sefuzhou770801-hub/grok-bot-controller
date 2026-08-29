@@ -1,0 +1,76 @@
+// SPDX-FileCopyrightText: 2026 Kenta IDA <fuga@fugafuga.org>
+// SPDX-License-Identifier: BSL-1.0
+//
+// Compile-seam smoke for assets/grok_face.avdsl: the file must compile, stay
+// under the 32 KiB NVS cap, and still emit both circles (idle body) and
+// triangles (eyes + morphing body).
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { compile } from '../compile.js';
+import { MAGIC, VERSION, Op, Var } from '../opcodes.js';
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+const src = readFileSync(resolve(ROOT, 'assets/grok_face.avdsl'), 'utf8');
+for (const token of ['now_ms', 'mouth_open', 'eye_open', 'expr_from', 'expr_blend',
+                     'expr_hold_to', 'expr_hold_blend']) {
+  if (!src.includes(token)) throw new Error(`grok_face.avdsl missing ${token}`);
+}
+if (!src.includes('0.8369') || !src.includes('0.7819')) {
+  throw new Error('grok_face.avdsl should sample bloub egg (0.8369) and triangle (0.7819) radii');
+}
+const buf = compile(src);
+const dv = new DataView(buf);
+const u8 = new Uint8Array(buf);
+
+if (dv.getUint32(0, true) !== MAGIC) throw new Error('bad magic');
+if (dv.getUint16(4, true) !== VERSION) throw new Error('bad version');
+const constCount = dv.getUint16(8, true);
+const fnCount = dv.getUint16(10, true);
+const codeSize = dv.getUint16(12, true);
+if (buf.byteLength > 32768) {
+  throw new Error(`bytecode ${buf.byteLength} exceeds 32 KiB NVS cap`);
+}
+if (fnCount < 1) throw new Error('expected at least fn draw');
+
+let off = 16;
+for (let i = 0; i < constCount; ++i) {
+  const tag = u8[off++];
+  if (tag === 1 || tag === 2) off += 4;
+  else if (tag === 3) off += 2;
+  else throw new Error(`unknown const tag ${tag}`);
+}
+const codeOff = off + fnCount * 6;
+const code = u8.subarray(codeOff, codeOff + codeSize);
+let sawCircle = false;
+let sawTriangle = false;
+let sawExprFrom = false;
+let sawExprBlend = false;
+let sawExprHoldTo = false;
+let sawExprHoldBlend = false;
+let pc = 0;
+while (pc < code.length) {
+  const op = code[pc++];
+  if (op === Op.FillCircle) sawCircle = true;
+  if (op === Op.FillTriangle) sawTriangle = true;
+  if (op === Op.PushVar) {
+    const id = code[pc];
+    if (id === Var.expr_from) sawExprFrom = true;
+    if (id === Var.expr_blend) sawExprBlend = true;
+    if (id === Var.expr_hold_to) sawExprHoldTo = true;
+    if (id === Var.expr_hold_blend) sawExprHoldBlend = true;
+  }
+  if (op === Op.PushF32) pc += 4;
+  else if (op === Op.PushI8 || op === Op.PushConst || op === Op.PushVar ||
+           op === Op.PushLocal || op === Op.StoreLocal || op === Op.Call) pc += 1;
+  else if (op === Op.PushI16 || op === Op.Jmp || op === Op.Jz || op === Op.Jnz) pc += 2;
+}
+if (!sawCircle) throw new Error('idle body should still emit fill_circle');
+if (!sawTriangle) throw new Error('eyes/morph body should emit fill_triangle');
+if (!sawExprFrom) throw new Error('blend path should PushVar expr_from');
+if (!sawExprBlend) throw new Error('blend path should PushVar expr_blend');
+if (!sawExprHoldTo) throw new Error('blend path should PushVar expr_hold_to');
+if (!sawExprHoldBlend) throw new Error('blend path should PushVar expr_hold_blend');
+
+console.log({ size: buf.byteLength, constCount, fnCount, codeSize, sawCircle, sawTriangle });
+console.log('OK');

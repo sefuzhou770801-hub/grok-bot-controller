@@ -51,14 +51,17 @@ set(_SETTINGS_SRC "${CMAKE_CURRENT_SOURCE_DIR}/web/settings_wifi.html")
 set(_SETTINGS_OUT "${CMAKE_CURRENT_BINARY_DIR}/settings_wifi.html")
 set(_DSL_INJECT "${PROJECT_DIR}/tools/avatar_dsl/inject.mjs")
 # DSL presets shipped in the page selector. Order matters — the first preset
-# is the textarea's initial value. Keep aligned with wasm/build.sh so the
-# Wi-Fi page and the standalone preview offer the same lineup.
+# is the textarea's initial value and should match the firmware factory face
+# (Grok). Keep aligned with wasm/build.sh so the Wi-Fi page and the standalone
+# preview offer the same lineup.
 set(_DSL_PRESETS
+    "grok=${PROJECT_DIR}/assets/grok_face.avdsl"
     "default=${PROJECT_DIR}/assets/default_face.avdsl"
     "omega=${PROJECT_DIR}/assets/omega_mouth.avdsl"
     "aokko=${PROJECT_DIR}/assets/aokko_face.avdsl"
 )
 set(_DSL_PRESET_FILES
+    "${PROJECT_DIR}/assets/grok_face.avdsl"
     "${PROJECT_DIR}/assets/default_face.avdsl"
     "${PROJECT_DIR}/assets/omega_mouth.avdsl"
     "${PROJECT_DIR}/assets/aokko_face.avdsl"

@@ -34,6 +34,7 @@ constexpr std::uint8_t STORE_LOCAL = 0x07;
 constexpr std::uint8_t POP = 0x08;
 constexpr std::uint8_t DUP = 0x09;
 constexpr std::uint8_t ADD = 0x10;
+constexpr std::uint8_t MUL = 0x12;
 constexpr std::uint8_t DIV = 0x13;
 constexpr std::uint8_t JMP = 0x30;
 constexpr std::uint8_t CALL = 0x33;
@@ -48,15 +49,13 @@ struct RunResult {
     RecordingCanvas canvas{320, 240};
 };
 
-RunResult run_program(const std::vector<std::uint8_t>& buf)
-{
+RunResult run_program(const std::vector<std::uint8_t>& buf, stackchan::avatar::DrawContext ctx = {}) {
     RunResult rr;
     rr.decoded = decode(std::span<const std::uint8_t>(buf));
     if (!rr.decoded) {
         rr.ran = tl::unexpected(rr.decoded.error());
         return rr;
     }
-    stackchan::avatar::DrawContext ctx;
     stackchan::avatar::FaceTuning tuning;
     Vm vm;
     rr.ran = vm.run(*rr.decoded, rr.canvas, ctx, tuning);
@@ -65,8 +64,7 @@ RunResult run_program(const std::vector<std::uint8_t>& buf)
 
 } // namespace
 
-int main()
-{
+int main() {
     // --- entry returns immediately ---------------------------------------
     {
         BytecodeBuilder b;
@@ -187,18 +185,138 @@ int main()
         CHECK(rr.canvas.ops.size() == 1 && rr.canvas.ops[0].a == 320);
     }
 
+    // --- PushVar Expr / ExprFrom / ExprBlend read DrawContext ------------
+    {
+        BytecodeBuilder b;
+        // fillCircle(cx=expr, cy=expr_from, r=expr_blend*10, color=3)
+        b.code(PUSH_VAR);
+        b.code(static_cast<std::uint8_t>(Var::Expr));
+        b.code(PUSH_VAR);
+        b.code(static_cast<std::uint8_t>(Var::ExprFrom));
+        b.code(PUSH_VAR);
+        b.code(static_cast<std::uint8_t>(Var::ExprBlend));
+        b.code(PUSH_I8);
+        b.code(10);
+        b.code(MUL);
+        b.code(PUSH_I8);
+        b.code(3);
+        b.code(FILL_CIRCLE);
+        b.code(RET);
+        b.add_fn(0, 0, 0);
+
+        stackchan::avatar::DrawContext ctx;
+        ctx.expression = stackchan::avatar::Expression::Happy;    // 1
+        ctx.expression_from = stackchan::avatar::Expression::Sad; // 2
+        ctx.expression_blend = 0.5f;
+        auto rr = run_program(b.build(0), ctx);
+        CHECK(rr.ran.has_value());
+        CHECK(rr.canvas.ops.size() == 1);
+        if (rr.canvas.ops.size() == 1) {
+            CHECK(rr.canvas.ops[0].kind == DrawOp::Kind::FillCircle);
+            CHECK(rr.canvas.ops[0].a == 1);
+            CHECK(rr.canvas.ops[0].b == 2);
+            CHECK(rr.canvas.ops[0].c == 5); // 0.5 * 10
+        }
+    }
+
+    // --- default ctx: expr_from Neutral, expr_blend idle (=1) ------------
+    {
+        BytecodeBuilder b;
+        b.code(PUSH_VAR);
+        b.code(static_cast<std::uint8_t>(Var::ExprFrom));
+        b.code(PUSH_VAR);
+        b.code(static_cast<std::uint8_t>(Var::ExprBlend));
+        b.code(PUSH_I8);
+        b.code(10);
+        b.code(MUL);
+        b.code(PUSH_I8);
+        b.code(1);
+        b.code(PUSH_I8);
+        b.code(3);
+        b.code(FILL_CIRCLE);
+        b.code(RET);
+        b.add_fn(0, 0, 0);
+        auto rr = run_program(b.build(0));
+        CHECK(rr.ran.has_value());
+        CHECK(rr.canvas.ops.size() == 1);
+        if (rr.canvas.ops.size() == 1) {
+            CHECK(rr.canvas.ops[0].a == 0);  // Neutral
+            CHECK(rr.canvas.ops[0].b == 10); // 1.0 * 10
+        }
+    }
+
+    // --- PushVar ExprHoldTo / ExprHoldBlend ------------------------------
+    {
+        BytecodeBuilder b;
+        b.code(PUSH_VAR);
+        b.code(static_cast<std::uint8_t>(Var::ExprHoldTo));
+        b.code(PUSH_VAR);
+        b.code(static_cast<std::uint8_t>(Var::ExprHoldBlend));
+        b.code(PUSH_I8);
+        b.code(10);
+        b.code(MUL);
+        b.code(PUSH_I8);
+        b.code(1);
+        b.code(PUSH_I8);
+        b.code(3);
+        b.code(FILL_CIRCLE);
+        b.code(RET);
+        b.add_fn(0, 0, 0);
+
+        stackchan::avatar::DrawContext ctx;
+        ctx.expression_hold_to = stackchan::avatar::Expression::Angry; // 3
+        ctx.expression_hold_blend = 0.25f;
+        auto rr = run_program(b.build(0), ctx);
+        CHECK(rr.ran.has_value());
+        CHECK(rr.canvas.ops.size() == 1);
+        if (rr.canvas.ops.size() == 1) {
+            CHECK(rr.canvas.ops[0].a == 3);
+            CHECK(rr.canvas.ops[0].b == 2); // 0.25 * 10
+        }
+    }
+
+    // --- PushVar ExprHold2To / ExprHold2Blend ----------------------------
+    {
+        BytecodeBuilder b;
+        b.code(PUSH_VAR);
+        b.code(static_cast<std::uint8_t>(Var::ExprHold2To));
+        b.code(PUSH_VAR);
+        b.code(static_cast<std::uint8_t>(Var::ExprHold2Blend));
+        b.code(PUSH_I8);
+        b.code(10);
+        b.code(MUL);
+        b.code(PUSH_I8);
+        b.code(1);
+        b.code(PUSH_I8);
+        b.code(3);
+        b.code(FILL_CIRCLE);
+        b.code(RET);
+        b.add_fn(0, 0, 0);
+
+        stackchan::avatar::DrawContext ctx;
+        ctx.expression_hold2_to = stackchan::avatar::Expression::Happy; // 1
+        ctx.expression_hold2_blend = 0.5f;
+        auto rr = run_program(b.build(0), ctx);
+        CHECK(rr.ran.has_value());
+        CHECK(rr.canvas.ops.size() == 1);
+        if (rr.canvas.ops.size() == 1) {
+            CHECK(rr.canvas.ops[0].a == 1);
+            CHECK(rr.canvas.ops[0].b == 5); // 0.5 * 10
+        }
+    }
+
     // --- function call with a parameter ----------------------------------
     {
         BytecodeBuilder b;
         // fn0 (entry): push 5, call fn1, ret
         // fn1 (1 param): fillCircle(param, 1, 1, 2), ret
-        b.code(PUSH_I8);       // 0
-        b.code(5);             // 1
-        b.code(CALL);          // 2
-        b.code(1);             // 3 fn_id=1
-        b.code(RET);           // 4
+        b.code(PUSH_I8); // 0
+        b.code(5);       // 1
+        b.code(CALL);    // 2
+        b.code(1);       // 3 fn_id=1
+        b.code(RET);     // 4
         const std::size_t fn1_off = b.code_len();
-        b.code(PUSH_LOCAL);    // param 0
+        b.code(PUSH_LOCAL); // param 0
         b.code(0);
         b.code(PUSH_I8);
         b.code(1);
