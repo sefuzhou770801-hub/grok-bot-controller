@@ -82,7 +82,7 @@ public:
         // Interactive overlay. -1 = none. `overlay_seq` bumps so the render
         // task retriggers the same face. `overlay_hold_ms == 0` is sticky
         // until `clear_face_overlay`.
-        std::atomic<int> overlay_expression{-1};
+        std::atomic<std::int32_t> overlay_expression{-1};
         std::atomic<std::uint32_t> overlay_hold_ms{0};
         std::atomic<std::uint32_t> overlay_seq{0};
         // Bumped on touch / wake / message so idle decay snaps back.
@@ -168,7 +168,7 @@ public:
     // `hold_ms == 0` keeps the overlay until `clear_face_overlay`.
     void request_face_overlay(stackchan::avatar::Expression e, std::uint32_t hold_ms) noexcept
     {
-        face.overlay_expression.store(static_cast<int>(e), std::memory_order_relaxed);
+        face.overlay_expression.store(static_cast<std::int32_t>(e), std::memory_order_relaxed);
         face.overlay_hold_ms.store(hold_ms, std::memory_order_relaxed);
         face.overlay_seq.fetch_add(1, std::memory_order_release);
         face.activity_seq.fetch_add(1, std::memory_order_relaxed);

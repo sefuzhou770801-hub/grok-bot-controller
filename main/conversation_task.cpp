@@ -50,6 +50,7 @@ constexpr const char* kTag = "conv-task";
 // any companding happens inside the ConversationService impl.
 constexpr std::size_t kMaxMicChunkSamples = 640; // worst case: 40 ms @ 16 kHz
 constexpr std::uint32_t kEnvelopeStepMs = 16;
+constexpr std::uint32_t kListenFaceMs = 6000; // 唤醒瞬间聆听脸展示时长
 
 // Playback ring: M5.Speaker.playRaw references the buffer (no copy) and its
 // resampler reads it sample-by-sample. If that buffer is in PSRAM it contends
@@ -564,7 +565,11 @@ private:
         VoiceState vs = VoiceState::Idle;
         switch (s) {
         case Local::Listening:
-            vs = VoiceState::Listening;
+            // Session-ready standby is NOT the listening face: mapping it to
+            // VoiceState::Listening would pin the face forever and make idle
+            // decay unreachable. The wake-moment face is a short overlay set
+            // in enter_listening(); standby stays Idle so decay can run.
+            vs = VoiceState::Idle;
             break;
         case Local::Thinking:
             vs = VoiceState::Thinking;

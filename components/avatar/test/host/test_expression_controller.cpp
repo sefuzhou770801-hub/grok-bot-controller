@@ -424,12 +424,16 @@ int main() {
         CHECK(c.resolve(ExpressionController::kSleepyAfterMs) == Expression::Listening);
     }
 
-    // Deliberate MCP / button mood is not eaten by idle decay.
+    // Being ignored outranks a leftover mood: Happy drifts bored → sleepy,
+    // and activity brings the mood back.
     {
         ExpressionController c;
         c.set_base(Expression::Happy);
         CHECK(c.resolve(0) == Expression::Happy);
-        CHECK(c.resolve(ExpressionController::kSleepyAfterMs) == Expression::Happy);
+        CHECK(c.resolve(ExpressionController::kBoredAfterMs) == Expression::Bored);
+        CHECK(c.resolve(ExpressionController::kSleepyAfterMs) == Expression::Sleepy);
+        c.note_activity();
+        CHECK(c.resolve(ExpressionController::kSleepyAfterMs + 10) == Expression::Happy);
     }
 
     // Listening still wins over a leftover LLM mood (wake face).

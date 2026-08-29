@@ -90,19 +90,23 @@ public:
             last_resolved_ = Expression::Listening;
             return last_resolved_;
         }
+        // Idle decay outranks a leftover mood: being ignored means the face
+        // drifts bored → sleepy even if the LLM left it Happy. Any activity
+        // (touch / wake / message) resets the clock and the mood shows again.
+        const std::uint32_t idle_ms = now_ms - last_activity_ms_;
+        if (idle_ms >= kSleepyAfterMs) {
+            last_resolved_ = Expression::Sleepy;
+            return last_resolved_;
+        }
+        if (idle_ms >= kBoredAfterMs) {
+            last_resolved_ = Expression::Bored;
+            return last_resolved_;
+        }
         if (mood_ != Expression::Neutral) {
             last_resolved_ = mood_;
             return last_resolved_;
         }
-
-        const std::uint32_t idle_ms = now_ms - last_activity_ms_;
-        if (idle_ms >= kSleepyAfterMs) {
-            last_resolved_ = Expression::Sleepy;
-        } else if (idle_ms >= kBoredAfterMs) {
-            last_resolved_ = Expression::Bored;
-        } else {
-            last_resolved_ = Expression::Neutral;
-        }
+        last_resolved_ = Expression::Neutral;
         return last_resolved_;
     }
 

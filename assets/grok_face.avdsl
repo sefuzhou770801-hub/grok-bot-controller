@@ -410,6 +410,7 @@ fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
     ro = ro * lid
   end
 
+  -- 与上方眼睛段的归一化同形：DSL 函数只有单返回值，双分量抽不成共享函数，保留两段。
   let nlen = sqrt(ldx * ldx + ldy * ldy)
   if nlen > 0.0001 then
     ldx = ldx / nlen
