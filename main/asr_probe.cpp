@@ -140,12 +140,12 @@ void detect_task(void*) {
             // 発話前にマイクを手放させる (I2S をスピーカーに渡す)。say_worker は先に
             // 合成 (~1s) してから playRaw するので、その間に feed_task が解放する。
             g_speaking.store(true, std::memory_order_relaxed);
-            stackchan::app::settings_sinks::say_kana("はい");  // 声で「はい」と返事
+            stackchan::app::settings_sinks::say_kana("ぴこん");  // 机器音效应答（非语言拟声）
             ESP_LOGI(kTag, "★★ WAKE WORD DETECTED (idx=%d) ★★", r->wake_word_index);
             if (g_state != nullptr) {
                 g_state->face.expression.store(static_cast<int>(stackchan::avatar::Expression::Happy),
                                                std::memory_order_relaxed);
-                g_state->set_balloon_text("はいï¼", 1800);  // 「はい？」
+                g_state->set_balloon_text("在！", 1800);
             }
         }
     }
