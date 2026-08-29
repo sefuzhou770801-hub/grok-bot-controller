@@ -160,7 +160,7 @@ struct DeviceConfig {
     // Show the battery gauge in the top-left of the avatar screen. Defaults to
     // true for backwards compatibility with NVS contents that pre-date the flag.
     // Takes effect after the Apply reboot.
-    bool battery_gauge_enabled = true;
+    bool battery_gauge_enabled = false;
     // Play the startup arpeggio (C5–E5–G5) on boot — the quick speaker sanity
     // check immediately after audio init. Defaults to true (= ships behaviour
     // before the flag existed). Set to false for a silent boot. Takes effect
