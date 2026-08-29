@@ -175,6 +175,12 @@ void led_task_entry(void* arg)
                 {110, 110, 110, 5.5f, 0.15f}, // Bored 暗白
             };
             const ExprLed& e = kExprLed[expr < 15 ? expr : 0];
+            // 灯在联动模式下是表达器官：用户默认亮度 26（10%）下暖白等低
+            // 饱和色几乎不可见（2026-08-30「状态灯没有反应」）。抬到至少
+            // 110/255，仍尊重用户调得更亮的情况。
+            if (bright < 110) {
+                bright = 110;
+            }
             if (expr == 12) { // Dizzy: 0.9 秒一圈的彩虹旋转
                 const float h0 = t / 0.9f;
                 for (std::size_t i = 0; i < n; ++i) {
@@ -257,7 +263,19 @@ void led_task_entry(void* arg)
             }
         }
 
-        (void)strip.show();
+        const bool show_ok = strip.show().has_value();
+
+        // 临时诊断（表情联动落地期）：每 5 秒一行状态，确认链路每环。
+        static std::uint32_t last_diag_ms = 0;
+        if (now_ms() - last_diag_ms >= 5000) {
+            last_diag_ms = now_ms();
+            ESP_LOGI(kTag, "diag: expr_sync=%d expr=%u mode=%u bright=%u quiesce=%d show=%d n=%u",
+                     static_cast<int>(state.led.expr_sync_enabled.load(std::memory_order_relaxed)),
+                     static_cast<unsigned>(state.led.resolved_expression.load(std::memory_order_relaxed)),
+                     static_cast<unsigned>(mode), static_cast<unsigned>(bright),
+                     static_cast<int>(state.i2c_quiesce.load(std::memory_order_acquire)),
+                     static_cast<int>(show_ok), static_cast<unsigned>(n));
+        }
         vTaskDelayUntil(&last_wake, kPeriodTicks);
     }
 }
