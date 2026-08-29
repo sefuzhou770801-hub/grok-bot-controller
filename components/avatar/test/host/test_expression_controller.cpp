@@ -191,6 +191,31 @@ int main() {
         CHECK(near(c.hold_blend(), 7.0f / 27.0f));
     }
 
+    // A second interrupt while hold is already live must keep the current mix
+    // as the from-pose. Flattening hold_blend to 1 would snap to Sleepy.
+    {
+        ExpressionController c;
+        c.set_target(Expression::Happy);
+        DrawContext ctx;
+        c.apply(ctx, 0);
+        c.apply(ctx, 100);
+        c.set_target(Expression::Sleepy);
+        c.apply(ctx, 100);
+        c.apply(ctx, 200);
+        c.set_target(Expression::Angry);
+        c.apply(ctx, 200);
+        CHECK(c.from() == Expression::Neutral);
+        CHECK(c.to() == Expression::Angry);
+        CHECK(near(c.blend(), 0.0f));
+        CHECK(c.hold_to() == Expression::Sleepy);
+        CHECK(near(c.hold_blend(), 7.0f / 27.0f));
+        CHECK(ctx.expression == Expression::Angry);
+        CHECK(ctx.expression_from == Expression::Neutral);
+        CHECK(near(ctx.expression_blend, 0.0f));
+        CHECK(ctx.expression_hold_to == Expression::Sleepy);
+        CHECK(near(ctx.expression_hold_blend, 7.0f / 27.0f));
+    }
+
     // Duration sits in the 200–400 ms window the ticket asked for.
     {
         CHECK(ExpressionController::kDurationMs >= 200);

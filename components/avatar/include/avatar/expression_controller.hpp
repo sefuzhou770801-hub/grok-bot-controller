@@ -77,11 +77,9 @@ private:
     }
 
     void retarget(Expression next) noexcept {
-        if (hold_active()) {
-            from_ = to_;
-            hold_to_ = to_;
-            hold_blend_ = 1.0f;
-        } else if (from_ != to_) {
+        // Freeze the in-flight pair as hold so the next ease starts from the
+        // current mix. Setting hold_blend to 1 would snap to a discrete pose.
+        if (from_ != to_ || hold_active()) {
             hold_to_ = to_;
             hold_blend_ = blend_;
         } else {
