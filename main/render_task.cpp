@@ -193,7 +193,19 @@ void render_task_entry(void* arg) {
             clawd_face.request_full_repaint();
         }
 
-        const std::int32_t mood = args.state->face.expression.load(std::memory_order_relaxed);
+        // 情绪自动回落（2026-08-30 老板：常态应是待机放空）：BtnB/摇动/MCP/
+        // LLM 写入的 mood 是持久值，测试残留会永远占住脸。45 秒无新写入即
+        // 回落 Neutral；对话中 LLM 持续换情绪会不断刷新时间戳，不受影响。
+        // 冷落衰减（2 分钟无聊 / 5 分钟瞌睡）在回落后照常接管。
+        std::int32_t mood = args.state->face.expression.load(std::memory_order_relaxed);
+        static std::uint32_t mood_set_ms = 0;
+        constexpr std::uint32_t kMoodAutoClearMs = 45'000;
+        if (mood != last_mood) {
+            mood_set_ms = now_ms;
+        } else if (mood != 0 && now_ms - mood_set_ms >= kMoodAutoClearMs) {
+            args.state->face.expression.store(0, std::memory_order_relaxed);
+            mood = 0;
+        }
         if (mood != last_mood) {
             avatar.set_expression(static_cast<avatar::Expression>(mood));
             last_mood = mood;
