@@ -82,10 +82,10 @@ end
 fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
   let gx = gaze_h * sz(4) + ox
   let gy = gaze_v * sz(3) + oy
-  let left_x = tx(160) + (tx(178.9) - tx(160)) * sx + gx
-  let left_y = ty(120) + (ty(79.1) - ty(120)) * sy + gy
-  let right_x = tx(160) + (tx(221.82) - tx(160)) * sx + gx
-  let right_y = ty(120) + (ty(68.57) - ty(120)) * sy + gy
+  let left_x = tx(160) + (tx(133.34) - tx(160)) * sx + gx
+  let left_y = ty(120) + (ty(83.89) - ty(120)) * sy + gy
+  let right_x = tx(160) + (tx(186.66) - tx(160)) * sx + gx
+  let right_y = ty(120) + (ty(83.89) - ty(120)) * sy + gy
   let b = clamp(expr_blend, 0, 1)
   let hb = clamp(expr_hold_blend, 0, 1)
   let hb2 = clamp(expr_hold2_blend, 0, 1)
@@ -120,18 +120,18 @@ fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
       w = b
     end
 
-    -- NEUTRAL = bloub neutre (defaults)
-    let p_lhs = 10.86
-    let p_lr = 8.77
-    let p_ldx = 0.44
-    let p_ldy = 0.9
+    -- NEUTRAL: 正面呆萌版（正视、对称、微内八，2026-08-30 老板定）
+    let p_lhs = 10.46
+    let p_lr = 9.86
+    let p_ldx = -0.07
+    let p_ldy = 1
     let p_lo = 1
     let p_lx = 0
     let p_ly = 0
-    let p_rhs = 13.43
-    let p_rr = 6.2
-    let p_rdx = 0.44
-    let p_rdy = 0.9
+    let p_rhs = 10.46
+    let p_rr = 9.86
+    let p_rdx = 0.07
+    let p_rdy = 1
     let p_ro = 1
     let p_rx = 0
     let p_ry = 0
@@ -141,56 +141,64 @@ fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
       p_lr = 8.46
       p_ldx = 0.98
       p_ldy = 0.2
-      p_lx = -39.79
-      p_ly = 25.94
+      p_lo = 1
+      p_lx = 5.76
+      p_ly = 21.15
       p_rhs = 3.9
       p_rr = 8.48
       p_rdx = 0.98
       p_rdy = -0.21
-      p_rx = -24.46
-      p_ry = 36.47
+      p_ro = 1
+      p_rx = 10.7
+      p_ry = 21.15
     elif e == SAD then
       -- bloub triste
       p_lhs = 9.41
       p_lr = 10.5
       p_ldx = 0.45
       p_ldy = 0.89
-      p_lx = -41.52
-      p_ly = 62.53
+      p_lo = 1
+      p_lx = 4.03
+      p_ly = 57.73
       p_rhs = 9.83
       p_rr = 10.14
       p_rdx = -0.46
       p_rdy = 0.89
-      p_rx = -29.39
-      p_ry = 73.05
+      p_ro = 1
+      p_rx = 5.77
+      p_ry = 57.73
     elif e == ANGRY then
       -- bloub colere
       p_lhs = 8.88
       p_lr = 7.5
       p_ldx = 0.88
       p_ldy = 0.48
-      p_lx = -43.13
-      p_ly = 29.25
+      p_lo = 1
+      p_lx = 2.43
+      p_ly = 24.45
       p_rhs = 8.41
       p_rr = 7.48
       p_rdx = -0.87
       p_rdy = 0.5
-      p_rx = -27.65
-      p_ry = 39.78
+      p_ro = 1
+      p_rx = 7.51
+      p_ry = 24.45
     elif e == DOUBT then
       -- bloub mefiant
       p_lhs = 9.45
       p_lr = 10.48
       p_ldx = 0.12
       p_ldy = 0.99
-      p_lx = -25.77
-      p_ly = 33.72
+      p_lo = 1
+      p_lx = 19.78
+      p_ly = 28.92
       p_rhs = 2.19
       p_rr = 7.48
       p_rdx = 1
       p_rdy = -0.08
-      p_rx = -15.19
-      p_ry = 38.52
+      p_ro = 1
+      p_rx = 19.97
+      p_ry = 23.19
     elif e == SLEEPY then
       -- bloub somnolent
       p_lhs = 10.89
@@ -198,141 +206,159 @@ fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
       p_ldx = 0.04
       p_ldy = 1
       p_lo = 0.42
-      p_lx = -36.37
-      p_ly = 57.37
+      p_lx = 9.18
+      p_ly = 52.57
       p_rhs = 11.41
       p_rr = 9.32
       p_rdx = 0.04
       p_rdy = 1
       p_ro = 0.42
-      p_rx = -24.49
-      p_ry = 65.04
+      p_rx = 10.67
+      p_ry = 49.72
     elif e == LISTENING then
       -- bloub attentif
       p_lhs = 11.64
       p_lr = 10.29
       p_ldx = 0.08
       p_ldy = 1
-      p_lx = -39.64
-      p_ly = 34.44
+      p_lo = 1
+      p_lx = 5.92
+      p_ly = 29.64
       p_rhs = 12.08
       p_rr = 9.85
       p_rdx = 0.08
       p_rdy = 1
-      p_rx = -27.72
-      p_ry = 41.14
+      p_ro = 1
+      p_rx = 7.44
+      p_ry = 25.81
     elif e == THINKING then
-      -- ours, bloub parameter model (gaze up-left, narrowed asymmetric)
+      -- bloub thinking
       p_lhs = 8.82
       p_lr = 8.56
       p_ldx = 0.11
       p_ldy = 0.99
-      p_lx = -69.67
-      p_ly = 10.57
+      p_lo = 1
+      p_lx = -24.11
+      p_ly = 5.77
       p_rhs = 4.9
       p_rr = 11
       p_rdx = -0.1
       p_rdy = 0.99
-      p_rx = -60.96
-      p_ry = 15.85
+      p_ro = 1
+      p_rx = -25.8
+      p_ry = 0.52
     elif e == EXCITED then
       -- bloub excite
       p_lhs = 8.14
       p_lr = 19.3
       p_ldx = 0.15
       p_ldy = 0.99
-      p_lx = -42.54
-      p_ly = 63.71
+      p_lo = 1
+      p_lx = 3.02
+      p_ly = 58.91
       p_rhs = 9.82
       p_rr = 17.8
       p_rdx = -0.18
       p_rdy = 0.98
-      p_rx = -19.06
-      p_ry = 74.23
+      p_ro = 1
+      p_rx = 16.1
+      p_ry = 58.91
     elif e == CURIOUS then
       -- bloub curieux
       p_lhs = 10.54
       p_lr = 11.96
       p_ldx = 0.35
       p_ldy = 0.94
-      p_lx = -19.48
-      p_ly = 63.16
+      p_lo = 1
+      p_lx = 26.07
+      p_ly = 58.36
       p_rhs = 9.31
       p_rr = 8.92
       p_rdx = 0.33
       p_rdy = 0.94
-      p_rx = -9.02
-      p_ry = 59.17
+      p_ro = 1
+      p_rx = 26.13
+      p_ry = 43.84
     elif e == CONFUSED then
       -- bloub confus
       p_lhs = 12.9
       p_lr = 8.76
       p_ldx = 0.12
       p_ldy = 0.99
-      p_lx = -69.3
-      p_ly = 31.94
+      p_lo = 1
+      p_lx = -23.75
+      p_ly = 27.14
       p_rhs = 5.49
       p_rr = 8.5
       p_rdx = 0.92
       p_rdy = 0.38
-      p_rx = -57.74
-      p_ry = 50.36
+      p_ro = 1
+      p_rx = -22.58
+      p_ry = 35.03
     elif e == SURPRISED then
       -- bloub surpris
       p_lhs = 1.84
       p_lr = 21.63
       p_ldx = 0
       p_ldy = 1
-      p_lx = -46.47
-      p_ly = 45.85
+      p_lo = 1
+      p_lx = -0.91
+      p_ly = 41.05
       p_rhs = 2.6
       p_rr = 20.87
       p_rdx = 0
       p_rdy = 1
-      p_rx = -24.36
-      p_ry = 56.38
+      p_ro = 1
+      p_rx = 10.8
+      p_ry = 41.05
     elif e == DIZZY then
-      -- bloub effraye; the live spin below keeps the dizzy read
+      -- bloub effraye
       p_lhs = 9.09
       p_lr = 19.1
       p_ldx = -0.01
       p_ldy = 1
-      p_lx = -50.83
-      p_ly = 72.94
+      p_lo = 1
+      p_lx = -5.27
+      p_ly = 68.14
       p_rhs = 9.55
       p_rr = 18.65
       p_rdx = -0.01
       p_rdy = 1
-      p_rx = -23.74
-      p_ry = 83.47
+      p_ro = 1
+      p_rx = 11.41
+      p_ry = 68.14
     elif e == AFFECTION then
       -- bloub hilare
       p_lhs = 9.78
       p_lr = 6.43
       p_ldx = 0.96
       p_ldy = 0.27
-      p_lx = -43.29
-      p_ly = 17.89
+      p_lo = 1
+      p_lx = 2.27
+      p_ly = 13.1
       p_rhs = 8.91
       p_rr = 6.47
       p_rdx = 0.96
       p_rdy = -0.29
-      p_rx = -24.55
-      p_ry = 28.42
+      p_ro = 1
+      p_rx = 10.61
+      p_ry = 13.1
     elif e == BORED then
       -- bloub blase
       p_lhs = 5.83
       p_lr = 6
       p_ldx = 1
       p_ldy = -0.01
-      p_lx = -80.44
-      p_ly = 37.55
+      p_lo = 1
+      p_lx = -34.89
+      p_ly = 32.75
       p_rhs = 8.92
       p_rr = 6
       p_rdx = 1
       p_rdy = 0.01
-      p_rx = -72.25
-      p_ry = 48.08
+      p_ro = 1
+      p_rx = -37.09
+      p_ry = 32.75
     end
 
     lhs = lhs + p_lhs * w
