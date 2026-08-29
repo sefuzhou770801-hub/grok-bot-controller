@@ -145,7 +145,7 @@ constexpr const char* kTag = "stackchan";
     static std::atomic<bool> balloon_in_flight{false};
 
     // Wi-Fi state edge detection: while disconnected we pin a persistent
-    // "Wi-Fi: 切断中" balloon and suppress babble; when it reconnects we
+    // "Wi-Fi: 已断开" balloon and suppress babble; when it reconnects we
     // clear the balloon so normal demo behaviour resumes.
     bool wifi_warning_active = false;
 
@@ -394,7 +394,7 @@ constexpr const char* kTag = "stackchan";
                 // Mouth opens with the current speech envelope; closed while silent.
                 g_state->face.mouth_open.store(speech.current_mouth_open(), std::memory_order_relaxed);
 
-                // The "Wi-Fi: 切断中" balloon and the babble suppression below only
+                // The "Wi-Fi: 已断开" balloon and the babble suppression below only
                 // make sense when the assistant actually needs the network — i.e.
                 // when the conversation backend (OpenAI / Gemini / XiaoZhi) is on.
                 // With conversation disabled the demo is fully self-contained
@@ -404,7 +404,7 @@ constexpr const char* kTag = "stackchan";
                 if (!wifi_ok && !wifi_warning_active) {
                     speech.stop();
                     // hold_ms = UINT32_MAX so the balloon stays put until we clear it.
-                    g_state->set_balloon_text("Wi-Fi: 切断中", /*hold_ms=*/UINT32_MAX);
+                    g_state->set_balloon_text("Wi-Fi: 已断开", /*hold_ms=*/UINT32_MAX);
                     balloon_in_flight.store(false, std::memory_order_release);
                     wifi_warning_active = true;
                 } else if (wifi_ok && wifi_warning_active) {
@@ -471,7 +471,7 @@ constexpr const char* kTag = "stackchan";
 
                 g_state->request_face_overlay(avatar::Expression::Happy, 0);
                 balloon_in_flight.store(true, std::memory_order_release);
-                g_state->set_balloon_text("なでなで♡", /*hold_ms=*/2200, [] {
+                g_state->set_balloon_text("摸摸♡", /*hold_ms=*/2200, [] {
                     balloon_in_flight.store(false, std::memory_order_release);
                 });
 
@@ -533,7 +533,7 @@ constexpr const char* kTag = "stackchan";
                 g_state->request_face_overlay(avatar::Expression::Happy,
                                               avatar::ExpressionController::kDefaultOverlayHoldMs);
                 balloon_in_flight.store(true, std::memory_order_release);
-                g_state->set_balloon_text("なでなで♡", /*hold_ms=*/2200, [] {
+                g_state->set_balloon_text("摸摸♡", /*hold_ms=*/2200, [] {
                     balloon_in_flight.store(false, std::memory_order_release);
                 });
 

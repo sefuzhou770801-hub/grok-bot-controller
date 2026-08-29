@@ -207,7 +207,7 @@ public:
         std::atomic<std::int8_t> pct{-1};  // 0..100, or -1 = unknown
         // Whether the render task draws the top-left battery gauge over the
         // avatar. Seeded from NVS at boot (DeviceConfig::battery_gauge_enabled).
-        std::atomic<bool> gauge_enabled{true};
+        std::atomic<bool> gauge_enabled{false};
     };
     Battery battery;
 
