@@ -541,12 +541,37 @@ fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
     rdy = rdy / nrlen
   end
 
-  capsule_eye(left_x + lx * canvas_scale * sx, left_y + ly * canvas_scale * sy,
-              sz(lhs) * scale, sz(lr) * scale,
-              ldx, ldy, lo, left_lid, color)
-  capsule_eye(right_x + rx * canvas_scale * sx, right_y + ry * canvas_scale * sy,
-              sz(rhs) * scale, sz(rr) * scale,
-              rdx, rdy, ro, right_lid, color)
+  -- Affection lands as ^ ^ happy-squint eyes: each eye becomes two
+  -- strokes folding up out of the flat hilare bar as the blend arrives,
+  -- so the transition bends instead of jumping (petting cuteness).
+  let aff_fold = 0
+  if expr == AFFECTION then
+    aff_fold = clamp((b - 0.55) / 0.45, 0, 1)
+  end
+  if aff_fold > 0.01 then
+    let ady = 0.62 * aff_fold
+    let adx = 1 - 0.24 * aff_fold
+    let alen = sqrt(adx * adx + ady * ady)
+    adx = adx / alen
+    ady = ady / alen
+    let ahs = sz(5.2) * scale
+    let ar = sz(4) * scale
+    let ax0 = left_x + lx * canvas_scale * sx
+    let ay0 = left_y + ly * canvas_scale * sy
+    capsule_eye(ax0 - adx * ahs, ay0 + ady * ahs, ahs, ar, 0 - adx, ady, lo, left_lid, color)
+    capsule_eye(ax0 + adx * ahs, ay0 + ady * ahs, ahs, ar, adx, ady, lo, left_lid, color)
+    let bx0 = right_x + rx * canvas_scale * sx
+    let by0 = right_y + ry * canvas_scale * sy
+    capsule_eye(bx0 - adx * ahs, by0 + ady * ahs, ahs, ar, 0 - adx, ady, ro, right_lid, color)
+    capsule_eye(bx0 + adx * ahs, by0 + ady * ahs, ahs, ar, adx, ady, ro, right_lid, color)
+  else
+    capsule_eye(left_x + lx * canvas_scale * sx, left_y + ly * canvas_scale * sy,
+                sz(lhs) * scale, sz(lr) * scale,
+                ldx, ldy, lo, left_lid, color)
+    capsule_eye(right_x + rx * canvas_scale * sx, right_y + ry * canvas_scale * sy,
+                sz(rhs) * scale, sz(rr) * scale,
+                rdx, rdy, ro, right_lid, color)
+  end
 end
 
 ----------------------------------------------------------------------
@@ -576,6 +601,15 @@ fn draw_z(x, y, s, color)
   fill_rect(x, y + s - th, s, th, color)
   fill_triangle(x + s - th, y + th, x + s, y + th, x, y + s - th, color)
   fill_triangle(x + s, y + th, x + th, y + s - th, x, y + s - th, color)
+end
+
+----------------------------------------------------------------------
+-- One heart: two lobes and a point. Floats up while being petted.
+----------------------------------------------------------------------
+fn draw_heart(x, y, s, color)
+  fill_circle(x - s * 0.5, y - s * 0.35, s * 0.55, color)
+  fill_circle(x + s * 0.5, y - s * 0.35, s * 0.55, color)
+  fill_triangle(x - s * 1.02, y - s * 0.1, x + s * 1.02, y - s * 0.1, x, y + s * 1.1, color)
 end
 
 ----------------------------------------------------------------------
@@ -849,11 +883,12 @@ fn draw()
     end
   end
 
-  -- Shy blush patches once the affection pose has landed (aora 14 害羞).
+  -- Petting: a little heart floats up beside the head.
   if expr == AFFECTION then
     if b > 0.6 then
-      fill_circle(cx - sz(46), cy + sz(16), sz(9), 0xFD15)
-      fill_circle(cx + sz(46), cy + sz(16), sz(9), 0xFD15)
+      let hc = (now_ms / 60) % 40
+      let hyy = ty(52) - hc / 40 * sz(16)
+      draw_heart(tx(243), hyy, sz(6 + 2 * (hc / 40)), body)
     end
   end
 
