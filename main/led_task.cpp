@@ -145,8 +145,52 @@ void led_task_entry(void* arg)
 
         const float t = now_ms() / 1000.0f;
 
-        switch (mode) {
-        case kModeSolid: {
+        // 表情联动（默认开）：颜色与呼吸节奏跟随当前表情，覆盖 mode/color。
+        // 亮度沿用用户设置（含嘴型亮度缩放）；电平表蒙版在下方继续叠加，
+        // 说话时耳朵电平表就是表情色。Dizzy 例外：快转彩虹。
+        if (state.led.expr_sync_enabled.load(std::memory_order_relaxed)) {
+            const std::uint8_t expr = state.led.resolved_expression.load(std::memory_order_relaxed);
+            struct ExprLed {
+                std::uint8_t r, g, b;
+                float period_s;   // 呼吸周期
+                float floor_gain; // 波谷保留亮度
+            };
+            // 下标 = avatar::Expression。颜色按表情语义：聆听青蓝、思考亮黄、
+            // 害羞粉、生气红、睡眠暗紫、无聊暗白、兴奋品红、惊讶白。
+            static constexpr ExprLed kExprLed[15] = {
+                {255, 210, 160, 4.0f, 0.30f}, // Neutral 暖白
+                {255, 200, 0, 2.2f, 0.35f},   // Happy 亮黄
+                {40, 80, 255, 5.0f, 0.20f},   // Sad 深蓝
+                {255, 30, 0, 1.2f, 0.40f},    // Angry 红（急促）
+                {255, 130, 0, 3.5f, 0.30f},   // Doubt 橙
+                {90, 0, 140, 6.0f, 0.10f},    // Sleepy 暗紫（慢）
+                {0, 190, 255, 1.6f, 0.35f},   // Listening 青蓝（脉冲）
+                {255, 255, 90, 2.0f, 0.30f},  // Thinking 亮黄白
+                {255, 0, 150, 1.4f, 0.40f},   // Excited 品红
+                {0, 255, 170, 2.8f, 0.30f},   // Curious 青绿
+                {170, 70, 255, 3.0f, 0.30f},  // Confused 紫
+                {255, 255, 255, 1.0f, 0.45f}, // Surprised 白
+                {255, 255, 255, 1.0f, 0.30f}, // Dizzy（彩虹快转，色值不用）
+                {255, 90, 130, 2.4f, 0.35f},  // Affection 粉
+                {110, 110, 110, 5.5f, 0.15f}, // Bored 暗白
+            };
+            const ExprLed& e = kExprLed[expr < 15 ? expr : 0];
+            if (expr == 12) { // Dizzy: 0.9 秒一圈的彩虹旋转
+                const float h0 = t / 0.9f;
+                for (std::size_t i = 0; i < n; ++i) {
+                    std::uint8_t r, g, b;
+                    hsv_to_rgb(h0 + static_cast<float>(i) / static_cast<float>(n), r, g, b);
+                    strip.set(i, scale8(r, bright), scale8(g, bright), scale8(b, bright));
+                }
+            } else {
+                const float phase = std::sin(t * 2.0f * 3.14159265f / e.period_s);
+                const float gain = (phase * 0.5f + 0.5f) * (1.0f - e.floor_gain) + e.floor_gain;
+                const std::uint8_t b2 = static_cast<std::uint8_t>(bright * gain);
+                strip.fill(scale8(e.r, b2), scale8(e.g, b2), scale8(e.b, b2));
+            }
+        } else {
+            switch (mode) {
+            case kModeSolid: {
             strip.fill(scale8(cr, bright), scale8(cg, bright), scale8(cb, bright));
             break;
         }
@@ -176,10 +220,11 @@ void led_task_entry(void* arg)
             }
             break;
         }
-        case kModeOff:
-        default:
-            strip.clear();
-            break;
+            case kModeOff:
+            default:
+                strip.clear();
+                break;
+            }
         }
 
         // Level-meter mask: after the base animation has painted every LED

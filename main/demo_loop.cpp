@@ -481,7 +481,9 @@ constexpr const char* kTag = "stackchan";
                 head_pet_restore_pending = false;
                 speech.stop();
 
-                head_pet_overlay_cmd = g_state->request_face_overlay(avatar::Expression::Happy, 0);
+                // 头顶被按住 = 抚摸亲昵态（aora 害羞：躲闪眼+腮红+飘心），
+                // 2026-08-30 老板确认：抚摸应当是害羞，不是普通开心。
+                head_pet_overlay_cmd = g_state->request_face_overlay(avatar::Expression::Affection, 0);
                 balloon_in_flight.store(true, std::memory_order_release);
                 g_state->set_balloon_text("摸摸♡", /*hold_ms=*/2200, [] {
                     balloon_in_flight.store(false, std::memory_order_release);
@@ -542,7 +544,7 @@ constexpr const char* kTag = "stackchan";
                 speech.stop();
                 const float prev_yaw = g_state->servo.target_yaw_deg.load(std::memory_order_relaxed);
 
-                g_state->request_face_overlay(avatar::Expression::Happy,
+                g_state->request_face_overlay(avatar::Expression::Affection,
                                               avatar::ExpressionController::kDefaultOverlayHoldMs);
                 balloon_in_flight.store(true, std::memory_order_release);
                 g_state->set_balloon_text("摸摸♡", /*hold_ms=*/2200, [] {

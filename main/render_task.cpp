@@ -227,6 +227,9 @@ void render_task_entry(void* arg) {
             clawd_face.set_expression(resolved);
             last_expression = static_cast<std::int32_t>(resolved);
         }
+        // 状态灯表情联动的数据源：把仲裁后的最终表情写回共享状态。
+        args.state->led.resolved_expression.store(static_cast<std::uint8_t>(resolved),
+                                                  std::memory_order_relaxed);
         const float mouth_open = args.state->face.mouth_open.load(std::memory_order_relaxed);
         avatar.set_mouth_open(mouth_open);
         clawd_face.set_mouth_open(mouth_open);
