@@ -5,6 +5,7 @@
 // run(), so from/to/hold/blend live here and are written into DrawContext.
 
 #include <cmath>
+#include <cstddef>
 
 #include "avatar/draw_context.hpp"
 #include "avatar/expression.hpp"
@@ -17,7 +18,7 @@ using stackchan::avatar::ExpressionController;
 
 namespace {
 
-constexpr int kExprCount = 6;
+constexpr std::size_t kExprCount = 6;
 
 // Left-eye half-segment lengths from grok_face.avdsl. Independent of the
 // controller: a jump in these mixed values is a visible snap.
@@ -34,15 +35,15 @@ bool near(float a, float b) {
     return std::fabs(a - b) < 1.0e-5f;
 }
 
-int expr_index(Expression e) {
-    return static_cast<int>(e);
+std::size_t expr_index(Expression e) {
+    return static_cast<std::size_t>(e);
 }
 
 // Expression mix as grok_face.avdsl consumes DrawContext. The frozen pose is
 // (1-hb)*[(1-hb2)*from + hb2*hold2_to] + hb*hold_to; visible mixes it with
 // `expression` by `expression_blend`.
 void mix_weights(const DrawContext& ctx, float w[kExprCount]) {
-    for (int i = 0; i < kExprCount; ++i) {
+    for (std::size_t i = 0; i < kExprCount; ++i) {
         w[i] = 0.0f;
     }
     const float b = ctx.expression_blend;
@@ -58,7 +59,7 @@ float mix_lhs(const DrawContext& ctx) {
     float w[kExprCount];
     mix_weights(ctx, w);
     float lhs = 0.0f;
-    for (int i = 0; i < kExprCount; ++i) {
+    for (std::size_t i = 0; i < kExprCount; ++i) {
         lhs += w[i] * kGrokLhs[i];
     }
     return lhs;
@@ -293,7 +294,7 @@ int main() {
         float w[kExprCount];
         mix_weights(ctx, w);
         float sum = 0.0f;
-        for (int i = 0; i < kExprCount; ++i) {
+        for (std::size_t i = 0; i < kExprCount; ++i) {
             CHECK(w[i] >= -1.0e-5f);
             sum += w[i];
         }
