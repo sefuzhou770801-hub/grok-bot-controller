@@ -9,8 +9,7 @@ namespace stackchan::clawd_motion {
 
 namespace {
 
-float clampf(float v, float lo, float hi) noexcept
-{
+float clampf(float v, float lo, float hi) noexcept {
     if (v < lo) {
         return lo;
     }
@@ -20,40 +19,18 @@ float clampf(float v, float lo, float hi) noexcept
     return v;
 }
 
-std::int16_t abs16(std::int16_t v) noexcept
-{
+std::int16_t abs16(std::int16_t v) noexcept {
     return v < 0 ? static_cast<std::int16_t>(-v) : v;
 }
 
 } // namespace
 
-int expression_index_for(Intent intent) noexcept
-{
-    switch (intent) {
-    case Intent::Tap:
-    case Intent::Stroke:
-        return kExprHappy;
-    case Intent::DoubleTap:
-    case Intent::FlickUp:
-    case Intent::DizzyStart:
-        return kExprDoubt;
-    case Intent::Hold:
-        return kExprAngry;
-    case Intent::FlickDown:
-        return kExprSleepy;
-    default:
-        return kExprNeutral;
-    }
-}
-
-void FaceInput::set_screen_center(float cx, float cy) noexcept
-{
+void FaceInput::set_screen_center(float cx, float cy) noexcept {
     cx_ = cx;
     cy_ = cy;
 }
 
-void FaceInput::reset_gesture() noexcept
-{
+void FaceInput::reset_gesture() noexcept {
     committed_ = false;
     stroke_fired_ = false;
     stroke_last_x_ = 0;
@@ -63,16 +40,14 @@ void FaceInput::reset_gesture() noexcept
     stroke_start_ms_ = 0;
 }
 
-void FaceInput::reset_shake() noexcept
-{
+void FaceInput::reset_shake() noexcept {
     shake_swings_ = 0;
     shake_dir_ = 0;
     shake_seq_start_ms_ = 0;
     last_swing_ms_ = 0;
 }
 
-void FaceInput::apply_touch_gaze(const TouchSample& touch, FaceInputTick& out) const noexcept
-{
+void FaceInput::apply_touch_gaze(const TouchSample& touch, FaceInputTick& out) const noexcept {
     const float dx = static_cast<float>(touch.x) - cx_;
     const float dy = static_cast<float>(touch.y) - cy_;
     const float r = std::sqrt(dx * dx + dy * dy);
@@ -88,8 +63,7 @@ void FaceInput::apply_touch_gaze(const TouchSample& touch, FaceInputTick& out) c
     out.gaze_v = dy * inv * kGazeGain;
 }
 
-void FaceInput::apply_tilt_gaze(FaceInputTick& out) const noexcept
-{
+void FaceInput::apply_tilt_gaze(FaceInputTick& out) const noexcept {
     if (!imu_ready_) {
         return;
     }
@@ -103,8 +77,7 @@ void FaceInput::apply_tilt_gaze(FaceInputTick& out) const noexcept
     out.gaze_v = ty * kGazeGain;
 }
 
-Intent FaceInput::classify_flick(std::int16_t dx, std::int16_t dy) const noexcept
-{
+Intent FaceInput::classify_flick(std::int16_t dx, std::int16_t dy) const noexcept {
     const auto adx = abs16(dx);
     const auto ady = abs16(dy);
     if (adx < kAxisLockPx && ady < kAxisLockPx) {
@@ -116,8 +89,7 @@ Intent FaceInput::classify_flick(std::int16_t dx, std::int16_t dy) const noexcep
     return dy < 0 ? Intent::FlickUp : Intent::FlickDown;
 }
 
-void FaceInput::set_preview_step(Intent flick, FaceInputTick& out) noexcept
-{
+void FaceInput::set_preview_step(Intent flick, FaceInputTick& out) noexcept {
     if (flick == Intent::FlickLeft) {
         out.preview_step = 1;
     } else if (flick == Intent::FlickRight) {
@@ -125,13 +97,11 @@ void FaceInput::set_preview_step(Intent flick, FaceInputTick& out) noexcept
     }
 }
 
-bool FaceInput::touch_is_moving(const TouchSample& touch) const noexcept
-{
+bool FaceInput::touch_is_moving(const TouchSample& touch) const noexcept {
     return touch.is_moving || abs16(touch.distance_x) >= kAxisLockPx || abs16(touch.distance_y) >= kAxisLockPx;
 }
 
-void FaceInput::track_stroke(const TouchSample& touch) noexcept
-{
+void FaceInput::track_stroke(const TouchSample& touch) noexcept {
     if (stroke_start_ms_ == 0) {
         stroke_start_ms_ = touch.now_ms;
         stroke_last_x_ = touch.x;
@@ -151,15 +121,14 @@ void FaceInput::track_stroke(const TouchSample& touch) noexcept
     stroke_last_x_ = touch.x;
 }
 
-bool FaceInput::stroke_qualified(std::uint32_t now_ms) const noexcept
-{
+bool FaceInput::stroke_qualified(std::uint32_t now_ms) const noexcept {
     if (stroke_reversals_ < kStrokeMinReversals) {
         return false;
     }
     if (stroke_path_px_ < kStrokeMinPathPx) {
         return false;
     }
-    if (stroke_start_ms_ == 0 || now_ms < stroke_start_ms_) {
+    if (stroke_start_ms_ == 0) {
         return false;
     }
     const std::uint32_t dur = now_ms - stroke_start_ms_;
@@ -170,26 +139,25 @@ bool FaceInput::stroke_qualified(std::uint32_t now_ms) const noexcept
     return speed <= kStrokeMaxSpeedPxPerMs;
 }
 
-Intent FaceInput::feed_touch(const TouchSample& touch, FaceInputTick& out) noexcept
-{
+Intent FaceInput::feed_touch(const TouchSample& touch, FaceInputTick& out) noexcept {
     if (touch.was_pressed) {
         reset_gesture();
         stroke_start_ms_ = touch.now_ms;
         stroke_last_x_ = touch.x;
-        stroke_restore_at_ms_ = 0;
+        stroke_restore_since_ms_ = 0;
     }
 
     if (touch.pressed) {
-        if (pending_tap_at_ms_ != 0 && touch_is_moving(touch)) {
-            pending_tap_at_ms_ = 0;
+        if (pending_tap_since_ms_ != 0 && touch_is_moving(touch)) {
+            pending_tap_since_ms_ = 0;
         }
         track_stroke(touch);
 
         if (!stroke_fired_ && stroke_qualified(touch.now_ms)) {
             stroke_fired_ = true;
             committed_ = true;
-            pending_tap_at_ms_ = 0;
-            stroke_restore_at_ms_ = 0;
+            pending_tap_since_ms_ = 0;
+            stroke_restore_since_ms_ = 0;
             apply_touch_gaze(touch, out);
             touch_gaze_this_tick_ = true;
             return Intent::Stroke;
@@ -197,7 +165,7 @@ Intent FaceInput::feed_touch(const TouchSample& touch, FaceInputTick& out) noexc
 
         if (!committed_ && touch.was_hold && !touch_is_moving(touch) && stroke_reversals_ == 0) {
             committed_ = true;
-            pending_tap_at_ms_ = 0;
+            pending_tap_since_ms_ = 0;
             return Intent::Hold;
         }
 
@@ -211,28 +179,27 @@ Intent FaceInput::feed_touch(const TouchSample& touch, FaceInputTick& out) noexc
     Intent released = Intent::None;
     if (!committed_ && touch.was_flicked) {
         committed_ = true;
-        pending_tap_at_ms_ = 0;
+        pending_tap_since_ms_ = 0;
         released = classify_flick(touch.distance_x, touch.distance_y);
         set_preview_step(released, out);
     } else if (!committed_ && touch.was_clicked) {
         committed_ = true;
         if (touch.click_count >= 2) {
-            pending_tap_at_ms_ = 0;
+            pending_tap_since_ms_ = 0;
             released = Intent::DoubleTap;
         } else {
-            pending_tap_at_ms_ = touch.now_ms + kDoubleTapWaitMs;
+            pending_tap_since_ms_ = touch.now_ms != 0 ? touch.now_ms : 1;
         }
     }
 
     if (stroke_fired_) {
-        stroke_restore_at_ms_ = touch.now_ms + kStrokeRestoreMs;
+        stroke_restore_since_ms_ = touch.now_ms != 0 ? touch.now_ms : 1;
     }
     reset_gesture();
     return released;
 }
 
-Intent FaceInput::feed_imu(const ImuSample& imu, std::uint32_t now_ms) noexcept
-{
+Intent FaceInput::feed_imu(const ImuSample& imu, std::uint32_t now_ms) noexcept {
     if (!imu.valid) {
         return Intent::None;
     }
@@ -283,8 +250,8 @@ Intent FaceInput::feed_imu(const ImuSample& imu, std::uint32_t now_ms) noexcept
         return Intent::None;
     }
 
-    if (shake_swings_ > 0 && (now_ms - shake_seq_start_ms_ > kShakeSequenceTimeoutMs ||
-                              now_ms - last_swing_ms_ > kShakeMaxGapMs)) {
+    if (shake_swings_ > 0 &&
+        (now_ms - shake_seq_start_ms_ > kShakeSequenceTimeoutMs || now_ms - last_swing_ms_ > kShakeMaxGapMs)) {
         reset_shake();
     }
 
@@ -315,16 +282,15 @@ Intent FaceInput::feed_imu(const ImuSample& imu, std::uint32_t now_ms) noexcept
     return Intent::None;
 }
 
-FaceInputTick FaceInput::tick(const TouchSample& touch, const ImuSample& imu, const Policy& policy) noexcept
-{
+FaceInputTick FaceInput::tick(const TouchSample& touch, const ImuSample& imu, const Policy& policy) noexcept {
     FaceInputTick out{};
     touch_gaze_this_tick_ = false;
     const std::uint32_t now_ms = touch.now_ms != 0 ? touch.now_ms : imu.now_ms;
 
     if (!policy.expressions_enabled || policy.overlay_owns_panel) {
         reset_gesture();
-        stroke_restore_at_ms_ = 0;
-        pending_tap_at_ms_ = 0;
+        stroke_restore_since_ms_ = 0;
+        pending_tap_since_ms_ = 0;
         if (dizzy_active_) {
             dizzy_active_ = false;
             dizzy_quiet_since_ms_ = 0;
@@ -335,13 +301,15 @@ FaceInputTick FaceInput::tick(const TouchSample& touch, const ImuSample& imu, co
 
     out.intent = feed_touch(touch, out);
 
-    if (out.intent == Intent::None && pending_tap_at_ms_ != 0 && now_ms >= pending_tap_at_ms_) {
-        pending_tap_at_ms_ = 0;
+    if (out.intent == Intent::None && pending_tap_since_ms_ != 0 &&
+        now_ms - pending_tap_since_ms_ >= kDoubleTapWaitMs) {
+        pending_tap_since_ms_ = 0;
         out.intent = Intent::Tap;
     }
 
-    if (out.intent == Intent::None && stroke_restore_at_ms_ != 0 && now_ms >= stroke_restore_at_ms_) {
-        stroke_restore_at_ms_ = 0;
+    if (out.intent == Intent::None && stroke_restore_since_ms_ != 0 &&
+        now_ms - stroke_restore_since_ms_ >= kStrokeRestoreMs) {
+        stroke_restore_since_ms_ = 0;
         out.intent = Intent::StrokeRestore;
     }
 
@@ -349,7 +317,7 @@ FaceInputTick FaceInput::tick(const TouchSample& touch, const ImuSample& imu, co
     if (out.intent == Intent::None && imu_intent != Intent::None) {
         out.intent = imu_intent;
         if (imu_intent == Intent::DizzyStart) {
-            stroke_restore_at_ms_ = 0;
+            stroke_restore_since_ms_ = 0;
         }
     }
 

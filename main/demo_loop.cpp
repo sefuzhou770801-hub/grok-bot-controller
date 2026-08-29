@@ -24,6 +24,7 @@
 #include "avatar/expression.hpp"
 #include "battery.hpp"
 #include "clawd_motion/face_input.hpp"
+#include "face_intent_map.hpp"
 #include "clawd_motion/motion.hpp"
 #include "device_ui.hpp"
 #include "lt_timer.hpp"
@@ -36,13 +37,6 @@ namespace stackchan::app {
 
 namespace {
 constexpr const char* kTag = "stackchan";
-
-static_assert(static_cast<int>(avatar::Expression::Neutral) == clawd_motion::kExprNeutral);
-static_assert(static_cast<int>(avatar::Expression::Happy) == clawd_motion::kExprHappy);
-static_assert(static_cast<int>(avatar::Expression::Sad) == clawd_motion::kExprSad);
-static_assert(static_cast<int>(avatar::Expression::Angry) == clawd_motion::kExprAngry);
-static_assert(static_cast<int>(avatar::Expression::Doubt) == clawd_motion::kExprDoubt);
-static_assert(static_cast<int>(avatar::Expression::Sleepy) == clawd_motion::kExprSleepy);
 } // namespace
 
 [[noreturn]] void run_demo_loop(const DemoLoopArgs& args)
@@ -159,7 +153,7 @@ static_assert(static_cast<int>(avatar::Expression::Sleepy) == clawd_motion::kExp
     clawd_motion::FaceInput face_input;
     face_input.set_screen_center(static_cast<float>(M5.Display.width()) * 0.5f,
                                  static_cast<float>(M5.Display.height()) * 0.5f);
-    std::optional<int> face_reaction_restore;
+    std::optional<std::uint8_t> face_reaction_restore;
     bool overlay_owns_gesture = false;
 
     for (;;) {
@@ -263,8 +257,7 @@ static_assert(static_cast<int>(avatar::Expression::Sleepy) == clawd_motion::kExp
             const auto td = M5.Touch.getDetail();
             const bool conv_speaking = g_state->conv.active.load(std::memory_order_relaxed) &&
                                        !g_state->conv.idle.load(std::memory_order_relaxed);
-            const bool barge_in_armed =
-                g_state->barge_in_enabled.load(std::memory_order_relaxed) && conv_speaking;
+            const bool barge_in_armed = g_state->barge_in_enabled.load(std::memory_order_relaxed) && conv_speaking;
             // Overlay flicks still switch tabs while the UI is shown.
             // FaceInput only sees leftover motion after that.
             if (td.wasFlicked()) {
@@ -331,10 +324,13 @@ static_assert(static_cast<int>(avatar::Expression::Sleepy) == clawd_motion::kExp
                 }
             } else if (intent == Intent::FlickLeft || intent == Intent::FlickRight) {
                 face_reaction_restore.reset();
-                int next = g_state->face.expression.load(std::memory_order_relaxed) + face.preview_step;
-                next %= clawd_motion::kExprCount;
+                std::int16_t next = static_cast<std::int16_t>(
+                    g_state->face.expression.load(std::memory_order_relaxed)) +
+                    face.preview_step;
+                const auto count = static_cast<std::int16_t>(avatar::kExpressionCount);
+                next %= count;
                 if (next < 0) {
-                    next += clawd_motion::kExprCount;
+                    next += count;
                 }
                 g_state->face.expression.store(next, std::memory_order_relaxed);
                 if (g_board != nullptr) {
@@ -343,20 +339,20 @@ static_assert(static_cast<int>(avatar::Expression::Sleepy) == clawd_motion::kExp
             } else if (intent != Intent::None) {
                 if (intent == Intent::Stroke || intent == Intent::DizzyStart) {
                     if (!face_reaction_restore) {
-                        face_reaction_restore =
-                            g_state->face.expression.load(std::memory_order_relaxed);
+                        face_reaction_restore = static_cast<std::uint8_t>(
+                            g_state->face.expression.load(std::memory_order_relaxed));
                     }
                 } else {
                     face_reaction_restore.reset();
                 }
-                g_state->face.expression.store(clawd_motion::expression_index_for(intent),
-                                               std::memory_order_relaxed);
+                const auto next = expression_for(intent);
+                g_state->face.expression.store(static_cast<std::uint8_t>(next), std::memory_order_relaxed);
                 if (g_board != nullptr) {
                     const std::uint16_t ms = intent == Intent::DizzyStart ? 80 : 30;
                     (void)g_board->vibrate(ms);
                 }
-                ESP_LOGI(kTag, "face intent %u → expr %d", static_cast<unsigned>(intent),
-                         clawd_motion::expression_index_for(intent));
+                ESP_LOGI(kTag, "face intent %u → expr %u", static_cast<unsigned>(intent),
+                         static_cast<unsigned>(next));
             }
             if (!td.isPressed()) {
                 overlay_owns_gesture = false;

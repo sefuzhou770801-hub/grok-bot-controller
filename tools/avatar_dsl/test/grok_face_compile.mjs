@@ -16,8 +16,11 @@ for (const token of ['now_ms', 'mouth_open', 'eye_open', 'expr_from', 'expr_blen
                      'expr_hold_to', 'expr_hold_blend']) {
   if (!src.includes(token)) throw new Error(`grok_face.avdsl missing ${token}`);
 }
-if (!src.includes('0.8369') || !src.includes('0.7819')) {
-  throw new Error('grok_face.avdsl should sample bloub egg (0.8369) and triangle (0.7819) radii');
+if (!src.includes('0.8369')) {
+  throw new Error('grok_face.avdsl should sample bloub egg (0.8369) radii');
+}
+if (src.includes('0.7819')) {
+  throw new Error('grok_face.avdsl must not keep the triangle body morph (0.7819)');
 }
 if (SymbolicConsts.NEUTRAL !== 0 || SymbolicConsts.IDLE !== 0) {
   throw new Error('Neutral/Idle must stay 0 (KK Idle)');
@@ -27,7 +30,7 @@ if (SymbolicConsts.SLEEPY !== 5) {
 }
 const kkFaces = {
   LISTENING: 6, THINKING: 7, EXCITED: 8, CURIOUS: 9,
-  CONFUSED: 10, SURPRISED: 11, DIZZY: 12,
+  CONFUSED: 10, SURPRISED: 11, DIZZY: 12, AFFECTION: 13,
 };
 for (const [name, value] of Object.entries(kkFaces)) {
   if (SymbolicConsts[name] !== value) {

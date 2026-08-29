@@ -108,7 +108,7 @@ conv::ToolDefinition make_set_expression_tool()
         .description = "改变 Stack-chan 的脸部表情。需要表达情绪时使用。",
         .parameters_json = R"({"type":"object","properties":{"expression":{"type":"string",)"
                            R"("enum":["neutral","idle","happy","sad","angry","doubt","sleepy",)"
-                           R"("listening","thinking","excited","curious","confused","surprised","dizzy"]}},)"
+                           R"("listening","thinking","excited","curious","confused","surprised","dizzy","affection"]}},)"
                            R"("required":["expression"]})",
     };
 }

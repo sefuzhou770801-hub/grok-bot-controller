@@ -9,10 +9,7 @@ namespace stackchan::clawd_motion {
 
 // LCD + IMU 语义事件。demo_loop 把 M5.Touch / M5.Imu 的一帧采样送进来，
 // 取出 intent 写 SharedState；手势判定本身不碰硬件。
-//
-// 表情整数沿用当前 6 值 Expression（0 Neutral … 5 Sleepy）。Surprised /
-// Dizzy 在 #3 扩枚举之前折叠到 Doubt（与 conversation_task 的 surprised
-// 映射一致）。#3 落地后只改 expression_index_for。
+// Intent → Expression 的映射在装配层（main/face_intent_map.hpp）。
 
 enum class Intent : std::uint8_t {
     None,
@@ -65,14 +62,6 @@ struct FaceInputTick {
     float gaze_v = 0.0f;
 };
 
-constexpr int kExprNeutral = 0;
-constexpr int kExprHappy = 1;
-constexpr int kExprSad = 2;
-constexpr int kExprAngry = 3;
-constexpr int kExprDoubt = 4;
-constexpr int kExprSleepy = 5;
-constexpr int kExprCount = 6;
-
 constexpr std::int16_t kAxisLockPx = 12;
 constexpr std::int16_t kStrokeMinPathPx = 48;
 constexpr std::uint8_t kStrokeMinReversals = 2;
@@ -90,8 +79,6 @@ constexpr std::uint32_t kShakeMaxGapMs = 480;
 constexpr std::uint32_t kShakeSequenceTimeoutMs = 1500;
 constexpr std::uint32_t kShakeSettleMs = 650;
 constexpr float kTiltFullScaleG = 0.28f;
-
-int expression_index_for(Intent intent) noexcept;
 
 class FaceInput {
 public:
@@ -124,8 +111,8 @@ private:
     std::uint8_t stroke_reversals_{0};
     std::int32_t stroke_path_px_{0};
     std::uint32_t stroke_start_ms_{0};
-    std::uint32_t stroke_restore_at_ms_{0};
-    std::uint32_t pending_tap_at_ms_{0};
+    std::uint32_t stroke_restore_since_ms_{0};
+    std::uint32_t pending_tap_since_ms_{0};
 
     bool imu_ready_{false};
     float neutral_x_{0.0f};

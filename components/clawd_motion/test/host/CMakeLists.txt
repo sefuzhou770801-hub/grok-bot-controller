@@ -40,5 +40,9 @@ add_test(NAME led_runtime COMMAND clawd_test_led_runtime)
 
 add_executable(clawd_test_face_input test_face_input.cpp)
 target_link_libraries(clawd_test_face_input PRIVATE clawd_motion_host)
+# expression_for lives in the assembly layer; avatar_vm for the enum.
+target_include_directories(clawd_test_face_input PRIVATE
+    ${REPO_ROOT}/main
+    ${REPO_ROOT}/components/avatar_vm/include)
 target_compile_options(clawd_test_face_input PRIVATE -Wall -Wextra)
 add_test(NAME face_input COMMAND clawd_test_face_input)

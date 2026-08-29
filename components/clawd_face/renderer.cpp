@@ -268,6 +268,8 @@ const char* face_for_expression(avatar::Expression expression)
             return "notification";
         case Expression::Dizzy:
             return "dizzy";
+        case Expression::Affection:
+            return "happy";
         case Expression::Neutral:
         default:
             return "idle";

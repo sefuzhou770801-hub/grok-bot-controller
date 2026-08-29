@@ -4,8 +4,8 @@
 -- Grok bot face for the avatar VM DSL. Idle geometry follows the bloub
 -- measurements: a perfectly round body and two asymmetric capsule eyes.
 -- Phase 2 adds sparse, irregular motion derived from now_ms: wink vs
--- binocular blink, a short eye orbit, speech squash, and two sampled
--- body morphs (egg, triangle) that return to the circle.
+-- binocular blink, a short eye orbit, speech squash, and a sampled
+-- egg body morph that returns to the circle. No triangular body.
 
 ----------------------------------------------------------------------
 -- One triangle in a capsule-eye fan. Blink and expression openness compress
@@ -286,6 +286,19 @@ fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
       p_ro = 0.95
       p_rx = -1
       p_ry = 1
+    elif e == AFFECTION then
+      p_lhs = 4.2
+      p_lr = 9.0
+      p_ldx = -0.258819
+      p_ldy = 0.965926
+      p_lo = 0.32
+      p_ly = 1
+      p_rhs = 3.6
+      p_rr = 7.6
+      p_rdx = 0.258819
+      p_rdy = 0.965926
+      p_ro = 0.32
+      p_ry = 1
     end
 
     lhs = lhs + p_lhs * w
@@ -314,6 +327,39 @@ fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
   if rlen > 0.0001 then
     rdx = rdx / rlen
     rdy = rdy / rlen
+  end
+
+  -- Dizzy loop: spin both capsules while the live expression is Dizzy.
+  if expr == DIZZY then
+    let spin = floor((now_ms / 90) % 8)
+    let sdx = 1
+    let sdy = 0
+    if spin == 1 then
+      sdx = 0.70710678
+      sdy = 0.70710678
+    elif spin == 2 then
+      sdx = 0
+      sdy = 1
+    elif spin == 3 then
+      sdx = -0.70710678
+      sdy = 0.70710678
+    elif spin == 4 then
+      sdx = -1
+      sdy = 0
+    elif spin == 5 then
+      sdx = -0.70710678
+      sdy = -0.70710678
+    elif spin == 6 then
+      sdx = 0
+      sdy = -1
+    elif spin == 7 then
+      sdx = 0.70710678
+      sdy = -0.70710678
+    end
+    ldx = sdx
+    ldy = sdy
+    rdx = -sdx
+    rdy = sdy
   end
 
   capsule_eye(left_x + lx * canvas_scale * sx, left_y + ly * canvas_scale * sy,
@@ -351,9 +397,9 @@ fn fill_ellipse(cx, cy, rx, ry, color)
 end
 
 ----------------------------------------------------------------------
--- Sixteen-sided body. `which` 1 = egg, 2 = triangle; radii sampled from
--- bloub src/bot/profiles.ts (64 rays, every 4th sample). morph 0 is a
--- regular 16-gon, used only while the circle is already leaving rest.
+-- Sixteen-sided body. `which` 1 = egg; radii sampled from bloub
+-- src/bot/profiles.ts (64 rays, every 4th sample). morph 0 is a regular
+-- 16-gon, used only while the circle is already leaving rest.
 ----------------------------------------------------------------------
 fn grok_body(cx, cy, base_r, morph, which, sx, sy, color)
   let r0 = base_r
@@ -390,23 +436,6 @@ fn grok_body(cx, cy, base_r, morph, which, sx, sy, color)
     r13 = base_r * (1 + (0.9697 - 1) * morph)
     r14 = base_r * (1 + (0.8760 - 1) * morph)
     r15 = base_r * (1 + (0.8337 - 1) * morph)
-  elif which == 2 then
-    r0 = base_r * (1 + (0.7819 - 1) * morph)
-    r1 = base_r * (1 + (1.0223 - 1) * morph)
-    r2 = base_r * (1 + (1.0808 - 1) * morph)
-    r3 = base_r * (1 + (0.8104 - 1) * morph)
-    r4 = base_r * (1 + (0.7151 - 1) * morph)
-    r5 = base_r * (1 + (0.7427 - 1) * morph)
-    r6 = base_r * (1 + (0.9148 - 1) * morph)
-    r7 = base_r * (1 + (1.1109 - 1) * morph)
-    r8 = base_r * (1 + (0.8482 - 1) * morph)
-    r9 = base_r * (1 + (0.7056 - 1) * morph)
-    r10 = base_r * (1 + (0.6938 - 1) * morph)
-    r11 = base_r * (1 + (0.8040 - 1) * morph)
-    r12 = base_r * (1 + (1.0791 - 1) * morph)
-    r13 = base_r * (1 + (0.9779 - 1) * morph)
-    r14 = base_r * (1 + (0.7656 - 1) * morph)
-    r15 = base_r * (1 + (0.7146 - 1) * morph)
   end
 
   -- Unit circle, 22.5 deg steps, clockwise, y down.
@@ -438,7 +467,6 @@ end
 --   blink hijack  9700 ms windows, kinds 0/1/3 both, 2 left wink, 4 right wink
 --   orbit         period 17900 offset 5900 duration 1200
 --   egg           period 25700 offset 3700 duration 1800
---   triangle      period 33100 offset 15100 duration 1800
 -- Speech: 14% vertical squash, 4% horizontal stretch, no overshoot.
 ----------------------------------------------------------------------
 fn draw()
@@ -522,19 +550,14 @@ fn draw()
     oy = (ay + (by - ay) * f) * amp
   end
 
-  -- Body morph. Egg wins if both windows overlap. One envelope, two clocks.
+  -- Body morph: egg only. The old triangle clock is gone so reactions
+  -- never show a pointed silhouette.
   let morph = 0
   let which = 1
   let elapsed = -1
   let et = (now_ms + 3700) % 25700
   if et < 1800 then
     elapsed = et
-    which = 1
-  end
-  let tt = (now_ms + 15100) % 33100
-  if elapsed < 0 and tt < 1800 then
-    elapsed = tt
-    which = 2
   end
   if elapsed >= 0 then
     if elapsed < 400 then
@@ -592,6 +615,8 @@ fn draw()
       s = 0.99
     elif e == DIZZY then
       s = 1.02
+    elif e == AFFECTION then
+      s = 1.01
     end
     body_scale_mix = body_scale_mix + s * w
     mix_i = mix_i + 1

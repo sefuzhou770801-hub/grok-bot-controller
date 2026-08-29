@@ -4,36 +4,32 @@
 #include <cmath>
 
 #include "clawd_motion/face_input.hpp"
+#include "face_intent_map.hpp"
 #include "test_support.hpp"
 
+using stackchan::app::expression_for;
+using stackchan::avatar::Expression;
 using stackchan::clawd_motion::FaceInput;
 using stackchan::clawd_motion::FaceInputTick;
 using stackchan::clawd_motion::ImuSample;
 using stackchan::clawd_motion::Intent;
-using stackchan::clawd_motion::Policy;
-using stackchan::clawd_motion::TouchSample;
-using stackchan::clawd_motion::expression_index_for;
-using stackchan::clawd_motion::kExprAngry;
-using stackchan::clawd_motion::kExprDoubt;
-using stackchan::clawd_motion::kExprHappy;
-using stackchan::clawd_motion::kExprSleepy;
 using stackchan::clawd_motion::kDoubleTapWaitMs;
 using stackchan::clawd_motion::kGazeGain;
 using stackchan::clawd_motion::kStrokeRestoreMs;
+using stackchan::clawd_motion::Policy;
+using stackchan::clawd_motion::TouchSample;
 
 namespace {
 
 Policy kOpen{};
 
-TouchSample idle(std::uint32_t now_ms)
-{
+TouchSample idle(std::uint32_t now_ms) {
     TouchSample s;
     s.now_ms = now_ms;
     return s;
 }
 
-TouchSample press(std::int16_t x, std::int16_t y, std::uint32_t now_ms)
-{
+TouchSample press(std::int16_t x, std::int16_t y, std::uint32_t now_ms) {
     TouchSample s;
     s.x = x;
     s.y = y;
@@ -44,8 +40,7 @@ TouchSample press(std::int16_t x, std::int16_t y, std::uint32_t now_ms)
 }
 
 TouchSample hold_at(std::int16_t x, std::int16_t y, std::int16_t dx, std::int16_t dy, std::uint32_t now_ms,
-                    bool moving = false)
-{
+                    bool moving = false) {
     TouchSample s;
     s.x = x;
     s.y = y;
@@ -57,15 +52,13 @@ TouchSample hold_at(std::int16_t x, std::int16_t y, std::int16_t dx, std::int16_
     return s;
 }
 
-bool near(float a, float b)
-{
+bool near(float a, float b) {
     return std::fabs(a - b) < 1.0e-4f;
 }
 
 } // namespace
 
-int main()
-{
+int main() {
     // 点一下 → Happy（等双击窗口过完才落，避免双击先闪 Happy）
     {
         FaceInput in;
@@ -83,7 +76,7 @@ int main()
         CHECK(t.intent == Intent::None);
         t = in.tick(idle(80 + kDoubleTapWaitMs), {}, kOpen);
         CHECK(t.intent == Intent::Tap);
-        CHECK(expression_index_for(t.intent) == kExprHappy);
+        CHECK(expression_for(t.intent) == Expression::Happy);
     }
 
     // 双击 → Surprised 暂映射 Doubt；第一下不落 Happy
@@ -102,7 +95,7 @@ int main()
         second.now_ms = 240;
         const auto t = in.tick(second, {}, kOpen);
         CHECK(t.intent == Intent::DoubleTap);
-        CHECK(expression_index_for(t.intent) == kExprDoubt);
+        CHECK(expression_for(t.intent) == Expression::Surprised);
         CHECK(in.tick(idle(80 + kDoubleTapWaitMs), {}, kOpen).intent == Intent::None);
     }
 
@@ -114,7 +107,7 @@ int main()
         h.was_hold = true;
         const auto t = in.tick(h, {}, kOpen);
         CHECK(t.intent == Intent::Hold);
-        CHECK(expression_index_for(t.intent) == kExprAngry);
+        CHECK(expression_for(t.intent) == Expression::Angry);
     }
 
     // 按住拖动过程中一直跟手，不在中途切成左右滑
@@ -159,7 +152,7 @@ int main()
         flick.now_ms = 80;
         auto t = in.tick(flick, {}, kOpen);
         CHECK(t.intent == Intent::FlickUp);
-        CHECK(expression_index_for(t.intent) == kExprDoubt);
+        CHECK(expression_for(t.intent) == Expression::Surprised);
     }
     {
         FaceInput in;
@@ -171,7 +164,7 @@ int main()
         flick.now_ms = 80;
         auto t = in.tick(flick, {}, kOpen);
         CHECK(t.intent == Intent::FlickDown);
-        CHECK(expression_index_for(t.intent) == kExprSleepy);
+        CHECK(expression_for(t.intent) == Expression::Sleepy);
     }
 
     // 松开时 was_flicked 仍能判定（50ms 循环可能错过中途采样）
@@ -227,7 +220,7 @@ int main()
             CHECK(t.intent != Intent::FlickRight);
         }
         CHECK(t.intent == Intent::Stroke);
-        CHECK(expression_index_for(t.intent) == kExprHappy);
+        CHECK(expression_for(t.intent) == Expression::Affection);
         CHECK(t.gaze_active);
 
         now += 40;
@@ -288,7 +281,7 @@ int main()
             }
         }
         CHECK(seen == Intent::DizzyStart);
-        CHECK(expression_index_for(Intent::DizzyStart) == kExprDoubt);
+        CHECK(expression_for(Intent::DizzyStart) == Expression::Dizzy);
 
         Intent ended = Intent::None;
         for (int i = 0; i < 40 && ended != Intent::DizzyEnd; ++i) {
@@ -298,6 +291,21 @@ int main()
             }
         }
         CHECK(ended == Intent::DizzyEnd);
+    }
+
+    // 毫秒计时回绕：点击在回绕前 250 ms，松手当帧不得立刻变成 Tap
+    {
+        FaceInput in;
+        const std::uint32_t t0 = 0xFFFFFFFFu - 250u;
+        in.tick(press(200, 200, t0), {}, kOpen);
+        TouchSample click;
+        click.was_clicked = true;
+        click.click_count = 1;
+        click.now_ms = t0;
+        CHECK(in.tick(click, {}, kOpen).intent == Intent::None);
+        CHECK(in.tick(idle(t0), {}, kOpen).intent == Intent::None);
+        CHECK(in.tick(idle(t0 + 399u), {}, kOpen).intent == Intent::None);
+        CHECK(in.tick(idle(t0 + 400u), {}, kOpen).intent == Intent::Tap);
     }
 
     // 缓慢倾斜：视线跟倾斜方向
@@ -317,6 +325,28 @@ int main()
         CHECK(t.intent == Intent::None);
         CHECK(t.gaze_active);
         CHECK(t.gaze_h > 0.0f);
+    }
+
+    // 毫秒计时回绕（约 49.7 天）跨越时，双击窗口不得提前触发。
+    // 点击发生在回绕前 250 ms，窗口 400 ms：回绕后约 150 ms 处才判 Tap。
+    {
+        FaceInput in;
+        const std::uint32_t t0 = 0xFFFFFFFFu - 249u; // 回绕前 250 ms
+        in.tick(press(160, 120, t0), {}, kOpen);
+        TouchSample up;
+        up.now_ms = t0 + 30;
+        up.was_clicked = true;
+        up.click_count = 1;
+        FaceInputTick t = in.tick(up, {}, kOpen);
+        CHECK(t.intent == Intent::None);
+
+        // 回绕后 20 ms（挂起后约 240 ms）：窗口未满，不得触发。
+        t = in.tick(idle(20), {}, kOpen);
+        CHECK(t.intent == Intent::None);
+
+        // 挂起后约 430 ms（回绕后 210 ms）：窗口已满，判定单击。
+        t = in.tick(idle(210), {}, kOpen);
+        CHECK(t.intent == Intent::Tap);
     }
 
     return motiontest::finish("face_input");
