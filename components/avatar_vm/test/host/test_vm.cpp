@@ -485,5 +485,37 @@ int main() {
         CHECK(!rr.ran && rr.ran.error() == VmError::Truncated);
     }
 
+    // Expression and ExprValue are the same u8 protocol. 0-5 stay the
+    // original six; KK faces occupy 6-12. Neutral is KK Idle.
+    {
+        using stackchan::avatar::Expression;
+        CHECK(static_cast<int>(Expression::Neutral) == 0);
+        CHECK(static_cast<int>(Expression::Happy) == 1);
+        CHECK(static_cast<int>(Expression::Sad) == 2);
+        CHECK(static_cast<int>(Expression::Angry) == 3);
+        CHECK(static_cast<int>(Expression::Doubt) == 4);
+        CHECK(static_cast<int>(Expression::Sleepy) == 5);
+        CHECK(static_cast<int>(Expression::Listening) == 6);
+        CHECK(static_cast<int>(Expression::Thinking) == 7);
+        CHECK(static_cast<int>(Expression::Excited) == 8);
+        CHECK(static_cast<int>(Expression::Curious) == 9);
+        CHECK(static_cast<int>(Expression::Confused) == 10);
+        CHECK(static_cast<int>(Expression::Surprised) == 11);
+        CHECK(static_cast<int>(Expression::Dizzy) == 12);
+        CHECK(static_cast<int>(ExprValue::Neutral) == static_cast<int>(Expression::Neutral));
+        CHECK(static_cast<int>(ExprValue::Happy) == static_cast<int>(Expression::Happy));
+        CHECK(static_cast<int>(ExprValue::Sad) == static_cast<int>(Expression::Sad));
+        CHECK(static_cast<int>(ExprValue::Angry) == static_cast<int>(Expression::Angry));
+        CHECK(static_cast<int>(ExprValue::Doubt) == static_cast<int>(Expression::Doubt));
+        CHECK(static_cast<int>(ExprValue::Sleepy) == static_cast<int>(Expression::Sleepy));
+        CHECK(static_cast<int>(ExprValue::Listening) == static_cast<int>(Expression::Listening));
+        CHECK(static_cast<int>(ExprValue::Thinking) == static_cast<int>(Expression::Thinking));
+        CHECK(static_cast<int>(ExprValue::Excited) == static_cast<int>(Expression::Excited));
+        CHECK(static_cast<int>(ExprValue::Curious) == static_cast<int>(Expression::Curious));
+        CHECK(static_cast<int>(ExprValue::Confused) == static_cast<int>(Expression::Confused));
+        CHECK(static_cast<int>(ExprValue::Surprised) == static_cast<int>(Expression::Surprised));
+        CHECK(static_cast<int>(ExprValue::Dizzy) == static_cast<int>(Expression::Dizzy));
+    }
+
     return avtest::finish("vm");
 }

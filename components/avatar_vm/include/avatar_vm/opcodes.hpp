@@ -128,6 +128,13 @@ enum class ExprValue : std::uint8_t {
     Angry = 3,
     Doubt = 4,
     Sleepy = 5,
+    Listening = 6,
+    Thinking = 7,
+    Excited = 8,
+    Curious = 9,
+    Confused = 10,
+    Surprised = 11,
+    Dizzy = 12,
 };
 
 } // namespace stackchan::avatar_vm

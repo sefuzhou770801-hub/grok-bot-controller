@@ -20,6 +20,7 @@
 #include <freertos/task.h>
 
 #include "avatar/expression.hpp"
+#include "avatar/expression_names.hpp"
 #include "config_service/config_service.hpp"
 #include "config_service/config_store.hpp"
 #include "config_service/settings_registry.hpp"
@@ -454,32 +455,29 @@ void register_mcp_sinks()
     // SharedState pipelines (render_task picks them up next frame). `say`
     // spawns a one-shot worker because synthesis + playback can take
     // hundreds of ms, way too long to block the HTTP server task.
-    stackchan::wifi_config::set_mcp_expression_sink(
-        [](std::string_view name) {
-            if (g_state == nullptr) return;
-            // Map enum names to the Expression integer. Unknown names fall
-            // back to Neutral rather than rejecting — the HTTP handler has
-            // already accepted the request, so silent fallback is the kinder
-            // failure mode.
-            using E = stackchan::avatar::Expression;
-            int v = static_cast<int>(E::Neutral);
-            if (name == "happy")        v = static_cast<int>(E::Happy);
-            else if (name == "sad")     v = static_cast<int>(E::Sad);
-            else if (name == "angry")   v = static_cast<int>(E::Angry);
-            else if (name == "doubt")   v = static_cast<int>(E::Doubt);
-            else if (name == "sleepy")  v = static_cast<int>(E::Sleepy);
-            else if (name == "neutral") v = static_cast<int>(E::Neutral);
-            g_state->face.expression.store(v, std::memory_order_relaxed);
-        });
+    stackchan::wifi_config::set_mcp_expression_sink([](std::string_view name) {
+        if (g_state == nullptr)
+            return;
+        // Map enum names to the Expression integer. Unknown names fall
+        // back to Neutral rather than rejecting — the HTTP handler has
+        // already accepted the request, so silent fallback is the kinder
+        // failure mode.
+        using stackchan::avatar::expression_from_name;
+        using E = stackchan::avatar::Expression;
+        const auto parsed = expression_from_name(name);
+        const int v = static_cast<int>(parsed.value_or(E::Neutral));
+        g_state->face.expression.store(v, std::memory_order_relaxed);
+    });
 
-    stackchan::wifi_config::set_mcp_balloon_sink(
-        [](std::string_view text, std::uint32_t hold_ms) {
-            if (g_state == nullptr) return;
-            g_state->set_balloon_text(text, hold_ms);
-        });
+    stackchan::wifi_config::set_mcp_balloon_sink([](std::string_view text, std::uint32_t hold_ms) {
+        if (g_state == nullptr)
+            return;
+        g_state->set_balloon_text(text, hold_ms);
+    });
 
     stackchan::wifi_config::set_lt_config_sink([](std::string_view json) {
-        if (g_state != nullptr) g_state->set_lt_config(json);
+        if (g_state != nullptr)
+            g_state->set_lt_config(json);
     });
 
     stackchan::wifi_config::set_mcp_say_kana_sink(

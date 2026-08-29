@@ -8,7 +8,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compile } from '../compile.js';
-import { MAGIC, VERSION, Op, Var } from '../opcodes.js';
+import { MAGIC, VERSION, Op, Var, SymbolicConsts } from '../opcodes.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const src = readFileSync(resolve(ROOT, 'assets/grok_face.avdsl'), 'utf8');
@@ -18,6 +18,24 @@ for (const token of ['now_ms', 'mouth_open', 'eye_open', 'expr_from', 'expr_blen
 }
 if (!src.includes('0.8369') || !src.includes('0.7819')) {
   throw new Error('grok_face.avdsl should sample bloub egg (0.8369) and triangle (0.7819) radii');
+}
+if (SymbolicConsts.NEUTRAL !== 0 || SymbolicConsts.IDLE !== 0) {
+  throw new Error('Neutral/Idle must stay 0 (KK Idle)');
+}
+if (SymbolicConsts.SLEEPY !== 5) {
+  throw new Error('original six must keep Sleepy = 5');
+}
+const kkFaces = {
+  LISTENING: 6, THINKING: 7, EXCITED: 8, CURIOUS: 9,
+  CONFUSED: 10, SURPRISED: 11, DIZZY: 12,
+};
+for (const [name, value] of Object.entries(kkFaces)) {
+  if (SymbolicConsts[name] !== value) {
+    throw new Error(`${name} must be ${value}, got ${SymbolicConsts[name]}`);
+  }
+  if (!src.includes(name)) {
+    throw new Error(`grok_face.avdsl missing ${name} keyframe`);
+  }
 }
 const buf = compile(src);
 const dv = new DataView(buf);

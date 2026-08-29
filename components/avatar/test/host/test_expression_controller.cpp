@@ -18,7 +18,7 @@ using stackchan::avatar::ExpressionController;
 
 namespace {
 
-constexpr std::size_t kExprCount = 6;
+constexpr std::size_t kExprCount = stackchan::avatar::kExpressionCount;
 
 // Left-eye half-segment lengths from grok_face.avdsl. Independent of the
 // controller: a jump in these mixed values is a visible snap.
@@ -29,6 +29,13 @@ constexpr float kGrokLhs[kExprCount] = {
     5.0f,  // Angry
     12.0f, // Doubt
     5.0f,  // Sleepy
+    10.0f, // Listening
+    13.0f, // Thinking
+    8.5f,  // Excited
+    12.5f, // Curious
+    11.5f, // Confused
+    6.0f,  // Surprised
+    9.0f,  // Dizzy
 };
 
 bool near(float a, float b) {
@@ -309,6 +316,19 @@ int main() {
     {
         CHECK(ExpressionController::kDurationMs >= 200);
         CHECK(ExpressionController::kDurationMs <= 400);
+    }
+
+    // New KK faces mix through the same from/to path; Thinking's lhs (13)
+    // is distinct from Neutral (11.3) once the ease completes.
+    {
+        ExpressionController c;
+        c.set_target(Expression::Thinking);
+        DrawContext ctx;
+        c.apply(ctx, 0);
+        CHECK(near(mix_lhs(ctx), 11.3f));
+        c.apply(ctx, ExpressionController::kDurationMs);
+        CHECK(near(mix_lhs(ctx), 13.0f));
+        CHECK(ctx.expression == Expression::Thinking);
     }
 
     return avtest::finish("expression_controller");

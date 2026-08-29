@@ -254,6 +254,20 @@ const char* face_for_expression(avatar::Expression expression)
             return "thinking";
         case Expression::Sleepy:
             return "sleeping";
+        case Expression::Listening:
+            return "idle_reading";
+        case Expression::Thinking:
+            return "thinking";
+        case Expression::Excited:
+            return "happy";
+        case Expression::Curious:
+            return "thinking";
+        case Expression::Confused:
+            return "confused";
+        case Expression::Surprised:
+            return "notification";
+        case Expression::Dizzy:
+            return "dizzy";
         case Expression::Neutral:
         default:
             return "idle";

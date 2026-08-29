@@ -39,7 +39,10 @@ if (!STACKCHAN_URL || !STACKCHAN_TOKEN) {
   process.exit(1);
 }
 
-const EXPRESSION_NAMES = ['neutral', 'happy', 'sad', 'angry', 'doubt', 'sleepy'] as const;
+const EXPRESSION_NAMES = [
+  'neutral', 'idle', 'happy', 'sad', 'angry', 'doubt', 'sleepy',
+  'listening', 'thinking', 'excited', 'curious', 'confused', 'surprised', 'dizzy',
+] as const;
 type ExpressionName = (typeof EXPRESSION_NAMES)[number];
 
 async function callFirmware(

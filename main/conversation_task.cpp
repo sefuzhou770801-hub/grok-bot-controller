@@ -22,6 +22,7 @@
 #include <freertos/task.h>
 
 #include "avatar/expression.hpp"
+#include "avatar/expression_names.hpp"
 #include "board/si12t_touch.hpp"
 #include "conversation/gemini_live_client.hpp"
 #include "conversation/metrics.hpp"
@@ -105,9 +106,10 @@ conv::ToolDefinition make_set_expression_tool()
     return conv::ToolDefinition{
         .name = "set_expression",
         .description = "改变 Stack-chan 的脸部表情。需要表达情绪时使用。",
-        .parameters_json =
-            R"({"type":"object","properties":{"expression":{"type":"string",)"
-            R"("enum":["neutral","happy","sad","angry","doubt","sleepy"]}},"required":["expression"]})",
+        .parameters_json = R"({"type":"object","properties":{"expression":{"type":"string",)"
+                           R"("enum":["neutral","idle","happy","sad","angry","doubt","sleepy",)"
+                           R"("listening","thinking","excited","curious","confused","surprised","dizzy"]}},)"
+                           R"("required":["expression"]})",
     };
 }
 
@@ -136,26 +138,15 @@ conv::ToolDefinition make_speak_katakoto_tool()
     };
 }
 
-std::optional<avatar::Expression> parse_expression(const char* name)
-{
-    if (name == nullptr) {
-        return std::nullopt;
-    }
-    if (std::strcmp(name, "neutral") == 0) return avatar::Expression::Neutral;
-    if (std::strcmp(name, "happy") == 0) return avatar::Expression::Happy;
-    if (std::strcmp(name, "sad") == 0) return avatar::Expression::Sad;
-    if (std::strcmp(name, "angry") == 0) return avatar::Expression::Angry;
-    if (std::strcmp(name, "doubt") == 0) return avatar::Expression::Doubt;
-    if (std::strcmp(name, "sleepy") == 0) return avatar::Expression::Sleepy;
-    return std::nullopt;
+std::optional<avatar::Expression> parse_expression(const char* name) {
+    return avatar::expression_from_name(name);
 }
 
-// Map XiaoZhi's affective `llm.emotion` vocabulary onto our 6 avatar
-// expressions. XiaoZhi emits a richer set (happy/laughing/funny/loving/…),
-// so several names collapse onto each face. Unknown names yield nullopt and
-// are ignored by the caller, leaving the current expression untouched.
-std::optional<avatar::Expression> parse_emotion(const char* name)
-{
+// Map XiaoZhi's affective `llm.emotion` vocabulary onto the expanded
+// expression set. Direct names (thinking/confused/surprised/…) hit
+// parse_expression first; the rest collapse onto the closest face.
+// Unknown names yield nullopt and are ignored by the caller.
+std::optional<avatar::Expression> parse_emotion(const char* name) {
     if (name == nullptr) {
         return std::nullopt;
     }
@@ -163,41 +154,37 @@ std::optional<avatar::Expression> parse_emotion(const char* name)
     if (auto e = parse_expression(name)) {
         return e;
     }
-    if (std::strcmp(name, "laughing") == 0 || std::strcmp(name, "funny") == 0 ||
-        std::strcmp(name, "loving") == 0 || std::strcmp(name, "delicious") == 0 ||
-        std::strcmp(name, "kissy") == 0 || std::strcmp(name, "winking") == 0 ||
-        std::strcmp(name, "silly") == 0) {
+    if (std::strcmp(name, "laughing") == 0 || std::strcmp(name, "funny") == 0) {
+        return avatar::Expression::Excited;
+    }
+    if (std::strcmp(name, "loving") == 0 || std::strcmp(name, "delicious") == 0 || std::strcmp(name, "kissy") == 0 ||
+        std::strcmp(name, "winking") == 0 || std::strcmp(name, "silly") == 0) {
         return avatar::Expression::Happy;
     }
     if (std::strcmp(name, "crying") == 0) {
         return avatar::Expression::Sad;
     }
     if (std::strcmp(name, "shocked") == 0) {
-        return avatar::Expression::Angry;
+        return avatar::Expression::Surprised;
     }
-    if (std::strcmp(name, "surprised") == 0 || std::strcmp(name, "thinking") == 0 ||
-        std::strcmp(name, "confused") == 0 || std::strcmp(name, "embarrassed") == 0) {
+    if (std::strcmp(name, "embarrassed") == 0) {
         return avatar::Expression::Doubt;
     }
-    if (std::strcmp(name, "relaxed") == 0 || std::strcmp(name, "cool") == 0 ||
-        std::strcmp(name, "confident") == 0) {
+    if (std::strcmp(name, "relaxed") == 0 || std::strcmp(name, "cool") == 0 || std::strcmp(name, "confident") == 0) {
         return avatar::Expression::Neutral;
     }
     return std::nullopt;
 }
 
-std::uint32_t now_ms()
-{
+std::uint32_t now_ms() {
     return static_cast<std::uint32_t>(esp_timer_get_time() / 1000);
 }
 
-std::int64_t now_us()
-{
+std::int64_t now_us() {
     return esp_timer_get_time();
 }
 
-std::uint32_t reconnect_backoff_ms(unsigned consecutive_failures)
-{
+std::uint32_t reconnect_backoff_ms(unsigned consecutive_failures) {
     if (consecutive_failures == 0) {
         return 0;
     }
@@ -214,18 +201,14 @@ std::uint32_t reconnect_backoff_ms(unsigned consecutive_failures)
 // Owns the conversation; one instance per task.
 class Coordinator {
 public:
-    Coordinator(SharedState& state, const char* api_key, config::Provider provider,
-                board::Si12tTouch* touch, const char* xiaozhi_url, const char* xiaozhi_token,
-                const char* system_prompt, const char* extra_headers,
-                const std::array<std::int16_t*, kSegmentBuffers>& seg_buf)
-        : state_{state}, api_key_{api_key != nullptr ? api_key : ""},
-          provider_{provider}, touch_{touch},
+    Coordinator(SharedState& state, const char* api_key, config::Provider provider, board::Si12tTouch* touch,
+                const char* xiaozhi_url, const char* xiaozhi_token, const char* system_prompt,
+                const char* extra_headers, const std::array<std::int16_t*, kSegmentBuffers>& seg_buf)
+        : state_{state}, api_key_{api_key != nullptr ? api_key : ""}, provider_{provider}, touch_{touch},
           xiaozhi_url_{xiaozhi_url != nullptr ? xiaozhi_url : ""},
           xiaozhi_token_{xiaozhi_token != nullptr ? xiaozhi_token : ""},
           system_prompt_{system_prompt != nullptr ? system_prompt : ""},
-          extra_headers_{extra_headers != nullptr ? extra_headers : ""},
-          seg_buf_{seg_buf}
-    {
+          extra_headers_{extra_headers != nullptr ? extra_headers : ""}, seg_buf_{seg_buf} {
         // Per-provider audio rates. The OpenAI client further compands its
         // 8 kHz PCM16 into µ-law on the wire; Gemini sends raw PCM16; XiaoZhi
         // streams Opus (16 kHz mono up, server-rate down, resampled to 24 kHz).

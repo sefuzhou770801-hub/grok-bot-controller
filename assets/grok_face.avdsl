@@ -189,6 +189,103 @@ fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
       p_rdy = 0.996195
       p_ro = 0.28
       p_ry = 4
+    elif e == LISTENING then
+      p_lhs = 10.0
+      p_lr = 9.8
+      p_ldx = -0.173648
+      p_ldy = 0.984808
+      p_lo = 1
+      p_ly = -1
+      p_rhs = 9.5
+      p_rr = 7.8
+      p_rdx = 0.173648
+      p_rdy = 0.984808
+      p_ro = 1
+      p_ry = -1
+    elif e == THINKING then
+      p_lhs = 13.0
+      p_lr = 8.0
+      p_ldx = -0.342020
+      p_ldy = 0.939693
+      p_lo = 0.92
+      p_lx = -2
+      p_ly = -3
+      p_rhs = 6.5
+      p_rr = 8.5
+      p_rdx = 0.258819
+      p_rdy = 0.965926
+      p_ro = 0.70
+      p_rx = 2
+      p_ry = -4
+    elif e == EXCITED then
+      p_lhs = 8.5
+      p_lr = 11.0
+      p_ldx = -0.173648
+      p_ldy = 0.984808
+      p_lo = 1
+      p_ly = -2
+      p_rhs = 8.0
+      p_rr = 9.5
+      p_rdx = 0.173648
+      p_rdy = 0.984808
+      p_ro = 1
+      p_ry = -2
+    elif e == CURIOUS then
+      p_lhs = 12.5
+      p_lr = 9.5
+      p_ldx = -0.139173
+      p_ldy = 0.990268
+      p_lo = 1
+      p_lx = 2
+      p_ly = -1
+      p_rhs = 8.0
+      p_rr = 8.0
+      p_rdx = -0.139173
+      p_rdy = 0.990268
+      p_ro = 0.85
+      p_rx = 3
+      p_ry = 0
+    elif e == CONFUSED then
+      p_lhs = 11.5
+      p_lr = 8.8
+      p_ldx = 0.309017
+      p_ldy = 0.951057
+      p_lo = 0.95
+      p_lx = -1
+      p_rhs = 5.5
+      p_rr = 7.5
+      p_rdx = -0.241922
+      p_rdy = 0.970296
+      p_ro = 0.62
+      p_rx = 1
+    elif e == SURPRISED then
+      p_lhs = 6.0
+      p_lr = 11.5
+      p_ldx = 0
+      p_ldy = 1
+      p_lo = 1
+      p_ly = -1
+      p_rhs = 5.5
+      p_rr = 10.0
+      p_rdx = 0
+      p_rdy = 1
+      p_ro = 1
+      p_ry = -1
+    elif e == DIZZY then
+      p_lhs = 9.0
+      p_lr = 9.0
+      p_ldx = 0.087156
+      p_ldy = 0.996195
+      p_lo = 0.95
+      p_lx = 1
+      p_ly = -1
+      p_rhs = 8.0
+      p_rr = 8.0
+      p_rdx = -0.087156
+      p_rdy = 0.996195
+      p_ro = 0.95
+      p_rx = -1
+      p_ry = 1
     end
 
     lhs = lhs + p_lhs * w
@@ -456,7 +553,50 @@ fn draw()
 
   let cx = tx(160)
   let cy = ty(120)
-  let base_r = sz(100)
+  let b = clamp(expr_blend, 0, 1)
+  let hb = clamp(expr_hold_blend, 0, 1)
+  let hb2 = clamp(expr_hold2_blend, 0, 1)
+  let body_scale_mix = 0
+  let mix_i = 0
+  while mix_i < 4 do
+    let e = expr_from
+    let w = (1 - hb2) * (1 - hb) * (1 - b)
+    if mix_i == 1 then
+      e = expr_hold2_to
+      w = hb2 * (1 - hb) * (1 - b)
+    elif mix_i == 2 then
+      e = expr_hold_to
+      w = hb * (1 - b)
+    elif mix_i == 3 then
+      e = expr
+      w = b
+    end
+    let s = 1
+    if e == EXCITED then
+      s = 1.06
+    elif e == SURPRISED then
+      s = 1.05
+    elif e == HAPPY then
+      s = 1.03
+    elif e == LISTENING then
+      s = 1.01
+    elif e == CURIOUS then
+      s = 1.02
+    elif e == CONFUSED then
+      s = 0.995
+    elif e == SLEEPY then
+      s = 0.97
+    elif e == SAD then
+      s = 0.98
+    elif e == THINKING then
+      s = 0.99
+    elif e == DIZZY then
+      s = 1.02
+    end
+    body_scale_mix = body_scale_mix + s * w
+    mix_i = mix_i + 1
+  end
+  let base_r = sz(100) * body_scale_mix
   let eye_scale = (sx + sy) / 2
 
   if morph > 0.02 then
