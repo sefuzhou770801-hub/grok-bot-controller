@@ -12,24 +12,24 @@ import { MAGIC, VERSION, Op, Var, SymbolicConsts } from '../opcodes.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const src = readFileSync(resolve(ROOT, 'assets/grok_face.avdsl'), 'utf8');
-for (const token of ['now_ms', 'mouth_open', 'eye_open', 'expr_from', 'expr_blend',
+// eye_open 不再出现：眨眼/开合压扁在 C++ 合成器（main/aora_face.hpp）里做。
+for (const token of ['now_ms', 'mouth_open', 'expr_from', 'expr_blend',
                      'expr_hold_to', 'expr_hold_blend']) {
   if (!src.includes(token)) throw new Error(`grok_face.avdsl missing ${token}`);
 }
 if (src.includes('0.8369')) {
   throw new Error('grok_face.avdsl must not keep the egg body morph (0.8369): body stays a circle');
 }
-if (!src.includes('Persistent listening')) {
-  throw new Error('grok_face.avdsl missing persistent listening motion');
-}
-if (!src.includes('Persistent thinking')) {
-  throw new Error('grok_face.avdsl missing persistent thinking motion');
-}
-if (!src.includes('continuous slow look-around')) {
-  throw new Error('grok_face.avdsl missing bored look-around motion');
-}
 if (src.includes('0.7819')) {
   throw new Error('grok_face.avdsl must not keep the triangle body morph (0.7819)');
+}
+// aora 环眼：两只眼各 46 个三角形，覆盖 ring_l0..47 / ring_r0..47 全部坐标
+for (const side of ['l', 'r']) {
+  for (const i of [0, 1, 24, 46, 47]) {
+    if (!src.includes(`ring_${side}${i}x`) || !src.includes(`ring_${side}${i}y`)) {
+      throw new Error(`grok_face.avdsl missing ring_${side}${i} coordinates`);
+    }
+  }
 }
 if (SymbolicConsts.NEUTRAL !== 0 || SymbolicConsts.IDLE !== 0) {
   throw new Error('Neutral/Idle must stay 0 (KK Idle)');

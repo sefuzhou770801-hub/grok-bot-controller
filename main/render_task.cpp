@@ -12,6 +12,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#include "aora_face.hpp"
 #include "avatar/avatar.hpp"
 #include "avatar/canvas.hpp"
 #include "avatar/canvas_m5gfx.hpp"
@@ -255,6 +256,11 @@ void render_task_entry(void* arg) {
         if (render_clawd) {
             clawd_face.render(now_ms, canvas);
         } else {
+            // aora 眼环：用上一帧 tick 后的表情权重合成当帧眼形（1 帧滞后，
+            // 视觉无感），VM 经 Var::RingBase 区间读取绘制。
+            static float ring_buf[aora::kOutFloats];
+            aora::compose(avatar.draw_context(), now_ms, ring_buf);
+            avatar.set_eye_ring_buffer(ring_buf);
             // avatar.tick() opens the frame (begin_frame) and draws the face;
             // overlays compose into the same frame; end_frame() presents.
             avatar.tick(now_ms, canvas);

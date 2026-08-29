@@ -78,6 +78,21 @@ export const Var = Object.freeze({
   expr_hold_blend: 0x22,
   expr_hold2_to: 0x23,
   expr_hold2_blend: 0x24,
+  // aora 眼环坐标区间从 0x25 起，由下方循环生成：
+  // ring_l0x, ring_l0y, ..., ring_l47y, ring_r0x, ..., ring_r47y。
+  // C++ 侧经 DrawContext::aora_ring 提供（components/avatar_vm/opcodes.hpp
+  // 的 Var::RingBase / kRingVarCount 与此同步）。
+  ...(() => {
+    const out = {};
+    let id = 0x25;
+    for (const side of ['l', 'r']) {
+      for (let i = 0; i < 48; i++) {
+        out[`ring_${side}${i}x`] = id++;
+        out[`ring_${side}${i}y`] = id++;
+      }
+    }
+    return out;
+  })(),
 });
 
 export const ConstTag = Object.freeze({

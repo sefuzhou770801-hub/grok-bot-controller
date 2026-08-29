@@ -220,6 +220,14 @@ bool Avatar::has_face() const noexcept {
     return impl_->has_face();
 }
 
+void Avatar::set_eye_ring_buffer(const float* buffer) noexcept {
+    impl_->context().aora_ring = buffer;
+}
+
+const DrawContext& Avatar::draw_context() const noexcept {
+    return impl_->context();
+}
+
 void Avatar::set_balloon_text(std::string_view text, std::uint32_t hold_ms) {
     auto& ctx = impl_->context();
     ctx.balloon_text = std::string{text};
