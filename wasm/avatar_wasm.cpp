@@ -238,11 +238,13 @@ EMSCRIPTEN_KEEPALIVE int avatar_width() { return g_w; }
 EMSCRIPTEN_KEEPALIVE int avatar_height() { return g_h; }
 EMSCRIPTEN_KEEPALIVE std::uint16_t* avatar_framebuffer() { return g_canvas.getBuffer(); }
 
-// expression: 0=Neutral 1=Happy 2=Sad 3=Angry 4=Doubt 5=Sleepy
+// expression: 0-5 original six, 6-12 KK faces. Neutral is KK Idle.
 EMSCRIPTEN_KEEPALIVE void avatar_set_expression(int e)
 {
     if (e < 0) e = 0;
-    if (e > 5) e = 5;
+    if (e >= static_cast<int>(stackchan::avatar::kExpressionCount)) {
+        e = static_cast<int>(stackchan::avatar::kExpressionCount) - 1;
+    }
     g_expr.set_target(static_cast<Expression>(e));
 }
 

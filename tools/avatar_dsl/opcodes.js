@@ -88,15 +88,23 @@ export const ConstTag = Object.freeze({
 });
 
 // Symbolic constants the parser inlines (expression enum, etc.). These match
-// stackchan::avatar::Expression's declared order (Neutral, Happy, Sad, Angry,
-// Doubt, Sleepy = 0..5).
+// stackchan::avatar::Expression: 0-5 stay the original six, KK faces 6-12.
+// IDLE is KK's name for Neutral.
 export const SymbolicConsts = Object.freeze({
   NEUTRAL: 0,
+  IDLE: 0,
   HAPPY: 1,
   SAD: 2,
   ANGRY: 3,
   DOUBT: 4,
   SLEEPY: 5,
+  LISTENING: 6,
+  THINKING: 7,
+  EXCITED: 8,
+  CURIOUS: 9,
+  CONFUSED: 10,
+  SURPRISED: 11,
+  DIZZY: 12,
   true: 1,
   false: 0,
 });

@@ -107,7 +107,9 @@ conv::ToolDefinition make_set_expression_tool()
         .description = "改变 Stack-chan 的脸部表情。需要表达情绪时使用。",
         .parameters_json =
             R"({"type":"object","properties":{"expression":{"type":"string",)"
-            R"("enum":["neutral","happy","sad","angry","doubt","sleepy"]}},"required":["expression"]})",
+            R"("enum":["neutral","idle","happy","sad","angry","doubt","sleepy",)"
+            R"("listening","thinking","excited","curious","confused","surprised","dizzy"]}},)"
+            R"("required":["expression"]})",
     };
 }
 
@@ -141,19 +143,28 @@ std::optional<avatar::Expression> parse_expression(const char* name)
     if (name == nullptr) {
         return std::nullopt;
     }
-    if (std::strcmp(name, "neutral") == 0) return avatar::Expression::Neutral;
+    if (std::strcmp(name, "neutral") == 0 || std::strcmp(name, "idle") == 0) {
+        return avatar::Expression::Neutral;
+    }
     if (std::strcmp(name, "happy") == 0) return avatar::Expression::Happy;
     if (std::strcmp(name, "sad") == 0) return avatar::Expression::Sad;
     if (std::strcmp(name, "angry") == 0) return avatar::Expression::Angry;
     if (std::strcmp(name, "doubt") == 0) return avatar::Expression::Doubt;
     if (std::strcmp(name, "sleepy") == 0) return avatar::Expression::Sleepy;
+    if (std::strcmp(name, "listening") == 0) return avatar::Expression::Listening;
+    if (std::strcmp(name, "thinking") == 0) return avatar::Expression::Thinking;
+    if (std::strcmp(name, "excited") == 0) return avatar::Expression::Excited;
+    if (std::strcmp(name, "curious") == 0) return avatar::Expression::Curious;
+    if (std::strcmp(name, "confused") == 0) return avatar::Expression::Confused;
+    if (std::strcmp(name, "surprised") == 0) return avatar::Expression::Surprised;
+    if (std::strcmp(name, "dizzy") == 0) return avatar::Expression::Dizzy;
     return std::nullopt;
 }
 
-// Map XiaoZhi's affective `llm.emotion` vocabulary onto our 6 avatar
-// expressions. XiaoZhi emits a richer set (happy/laughing/funny/loving/…),
-// so several names collapse onto each face. Unknown names yield nullopt and
-// are ignored by the caller, leaving the current expression untouched.
+// Map XiaoZhi's affective `llm.emotion` vocabulary onto the expanded
+// expression set. Direct names (thinking/confused/surprised/…) hit
+// parse_expression first; the rest collapse onto the closest face.
+// Unknown names yield nullopt and are ignored by the caller.
 std::optional<avatar::Expression> parse_emotion(const char* name)
 {
     if (name == nullptr) {
@@ -163,8 +174,10 @@ std::optional<avatar::Expression> parse_emotion(const char* name)
     if (auto e = parse_expression(name)) {
         return e;
     }
-    if (std::strcmp(name, "laughing") == 0 || std::strcmp(name, "funny") == 0 ||
-        std::strcmp(name, "loving") == 0 || std::strcmp(name, "delicious") == 0 ||
+    if (std::strcmp(name, "laughing") == 0 || std::strcmp(name, "funny") == 0) {
+        return avatar::Expression::Excited;
+    }
+    if (std::strcmp(name, "loving") == 0 || std::strcmp(name, "delicious") == 0 ||
         std::strcmp(name, "kissy") == 0 || std::strcmp(name, "winking") == 0 ||
         std::strcmp(name, "silly") == 0) {
         return avatar::Expression::Happy;
@@ -173,10 +186,9 @@ std::optional<avatar::Expression> parse_emotion(const char* name)
         return avatar::Expression::Sad;
     }
     if (std::strcmp(name, "shocked") == 0) {
-        return avatar::Expression::Angry;
+        return avatar::Expression::Surprised;
     }
-    if (std::strcmp(name, "surprised") == 0 || std::strcmp(name, "thinking") == 0 ||
-        std::strcmp(name, "confused") == 0 || std::strcmp(name, "embarrassed") == 0) {
+    if (std::strcmp(name, "embarrassed") == 0) {
         return avatar::Expression::Doubt;
     }
     if (std::strcmp(name, "relaxed") == 0 || std::strcmp(name, "cool") == 0 ||

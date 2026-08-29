@@ -463,12 +463,19 @@ void register_mcp_sinks()
             // failure mode.
             using E = stackchan::avatar::Expression;
             int v = static_cast<int>(E::Neutral);
-            if (name == "happy")        v = static_cast<int>(E::Happy);
-            else if (name == "sad")     v = static_cast<int>(E::Sad);
-            else if (name == "angry")   v = static_cast<int>(E::Angry);
-            else if (name == "doubt")   v = static_cast<int>(E::Doubt);
-            else if (name == "sleepy")  v = static_cast<int>(E::Sleepy);
-            else if (name == "neutral") v = static_cast<int>(E::Neutral);
+            if (name == "happy")           v = static_cast<int>(E::Happy);
+            else if (name == "sad")        v = static_cast<int>(E::Sad);
+            else if (name == "angry")      v = static_cast<int>(E::Angry);
+            else if (name == "doubt")      v = static_cast<int>(E::Doubt);
+            else if (name == "sleepy")     v = static_cast<int>(E::Sleepy);
+            else if (name == "neutral" || name == "idle") v = static_cast<int>(E::Neutral);
+            else if (name == "listening")  v = static_cast<int>(E::Listening);
+            else if (name == "thinking")   v = static_cast<int>(E::Thinking);
+            else if (name == "excited")    v = static_cast<int>(E::Excited);
+            else if (name == "curious")    v = static_cast<int>(E::Curious);
+            else if (name == "confused")   v = static_cast<int>(E::Confused);
+            else if (name == "surprised")  v = static_cast<int>(E::Surprised);
+            else if (name == "dizzy")      v = static_cast<int>(E::Dizzy);
             g_state->face.expression.store(v, std::memory_order_relaxed);
         });
 
