@@ -58,7 +58,7 @@ public:
     void request_full_repaint() noexcept;
 
     // Hot-swap the face bytecode. `bytes` must hold an `AVDS` v1 file (see
-    // assets/default_face.avdsl / tools/avatar_dsl/). Returns true on success;
+    // assets/grok_face.avdsl / tools/avatar_dsl/). Returns true on success;
     // on failure the previous bytecode (or the firmware-embedded default) is
     // left in place and an ESP_LOG error describes the decode error. The buffer
     // is copied internally so the caller may free `bytes` immediately.
@@ -66,6 +66,8 @@ public:
     // Revert to the firmware-embedded default face. Always succeeds (the
     // default bytecode is validated at link time).
     void reset_face_bytecode() noexcept;
+    // True once the VM has decoded a face (embedded default or a hot-swap).
+    bool has_face() const noexcept;
 
 private:
     class Impl;

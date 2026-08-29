@@ -15,10 +15,14 @@ namespace stackchan::avatar {
 struct DrawContext {
     Expression expression{Expression::Neutral};
     // Source expression for a C++-owned ease. `expression_blend` is 0 at the
-    // start of a transition (fully `expression_from`) and 1 when idle / done
-    // (fully `expression`). DSL is a pure function of these three.
+    // start of a transition (fully the from-pose) and 1 when idle / done
+    // (fully `expression`). A one-level hold captures the interrupted pair so
+    // a retarget does not snap: the from-pose is
+    // lerp(`expression_from`, `expression_hold_to`, `expression_hold_blend`).
     Expression expression_from{Expression::Neutral};
     float expression_blend{1.0f};
+    Expression expression_hold_to{Expression::Neutral};
+    float expression_hold_blend{1.0f};
     float breath{0.0f};
     // External / commanded gaze target — written by Avatar::set_gaze (e.g.
     // touch-follow, future API gesture). Saccade is added on top so the

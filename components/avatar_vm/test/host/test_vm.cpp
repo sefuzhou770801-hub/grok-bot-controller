@@ -49,9 +49,7 @@ struct RunResult {
     RecordingCanvas canvas{320, 240};
 };
 
-RunResult run_program(const std::vector<std::uint8_t>& buf,
-                      stackchan::avatar::DrawContext ctx = {})
-{
+RunResult run_program(const std::vector<std::uint8_t>& buf, stackchan::avatar::DrawContext ctx = {}) {
     RunResult rr;
     rr.decoded = decode(std::span<const std::uint8_t>(buf));
     if (!rr.decoded) {
@@ -66,8 +64,7 @@ RunResult run_program(const std::vector<std::uint8_t>& buf,
 
 } // namespace
 
-int main()
-{
+int main() {
     // --- entry returns immediately ---------------------------------------
     {
         BytecodeBuilder b;
@@ -208,8 +205,8 @@ int main()
         b.add_fn(0, 0, 0);
 
         stackchan::avatar::DrawContext ctx;
-        ctx.expression = stackchan::avatar::Expression::Happy;      // 1
-        ctx.expression_from = stackchan::avatar::Expression::Sad;   // 2
+        ctx.expression = stackchan::avatar::Expression::Happy;    // 1
+        ctx.expression_from = stackchan::avatar::Expression::Sad; // 2
         ctx.expression_blend = 0.5f;
         auto rr = run_program(b.build(0), ctx);
         CHECK(rr.ran.has_value());
@@ -248,18 +245,48 @@ int main()
         }
     }
 
+    // --- PushVar ExprHoldTo / ExprHoldBlend ------------------------------
+    {
+        BytecodeBuilder b;
+        b.code(PUSH_VAR);
+        b.code(static_cast<std::uint8_t>(Var::ExprHoldTo));
+        b.code(PUSH_VAR);
+        b.code(static_cast<std::uint8_t>(Var::ExprHoldBlend));
+        b.code(PUSH_I8);
+        b.code(10);
+        b.code(MUL);
+        b.code(PUSH_I8);
+        b.code(1);
+        b.code(PUSH_I8);
+        b.code(3);
+        b.code(FILL_CIRCLE);
+        b.code(RET);
+        b.add_fn(0, 0, 0);
+
+        stackchan::avatar::DrawContext ctx;
+        ctx.expression_hold_to = stackchan::avatar::Expression::Angry; // 3
+        ctx.expression_hold_blend = 0.25f;
+        auto rr = run_program(b.build(0), ctx);
+        CHECK(rr.ran.has_value());
+        CHECK(rr.canvas.ops.size() == 1);
+        if (rr.canvas.ops.size() == 1) {
+            CHECK(rr.canvas.ops[0].a == 3);
+            CHECK(rr.canvas.ops[0].b == 2); // 0.25 * 10
+        }
+    }
+
     // --- function call with a parameter ----------------------------------
     {
         BytecodeBuilder b;
         // fn0 (entry): push 5, call fn1, ret
         // fn1 (1 param): fillCircle(param, 1, 1, 2), ret
-        b.code(PUSH_I8);       // 0
-        b.code(5);             // 1
-        b.code(CALL);          // 2
-        b.code(1);             // 3 fn_id=1
-        b.code(RET);           // 4
+        b.code(PUSH_I8); // 0
+        b.code(5);       // 1
+        b.code(CALL);    // 2
+        b.code(1);       // 3 fn_id=1
+        b.code(RET);     // 4
         const std::size_t fn1_off = b.code_len();
-        b.code(PUSH_LOCAL);    // param 0
+        b.code(PUSH_LOCAL); // param 0
         b.code(0);
         b.code(PUSH_I8);
         b.code(1);

@@ -56,9 +56,9 @@ enum class Op : std::uint8_t {
     Or = 0x28,
     Xor = 0x29,
 
-    Jmp = 0x30, // <2B LE i16>
-    Jz = 0x31,  // <2B LE i16>
-    Jnz = 0x32, // <2B LE i16>
+    Jmp = 0x30,  // <2B LE i16>
+    Jz = 0x31,   // <2B LE i16>
+    Jnz = 0x32,  // <2B LE i16>
     Call = 0x33, // <1B fn_id>
     Ret = 0x34,
 
@@ -105,6 +105,8 @@ enum class Var : std::uint8_t {
     CheekOffY = 0x1E,
     ExprFrom = 0x1F,
     ExprBlend = 0x20,
+    ExprHoldTo = 0x21,
+    ExprHoldBlend = 0x22,
     VarCount,
 };
 

@@ -72,10 +72,10 @@ PROCESSED_SHELL_REL="$DSL_OUT_REL/shell.processed.html"
 node "$ROOT/tools/avatar_dsl/inject.mjs" \
     "$ROOT/wasm/shell.html" \
     "$PROCESSED_SHELL" \
+    "grok=$ROOT/assets/grok_face.avdsl" \
     "default=$ROOT/assets/default_face.avdsl" \
     "omega=$ROOT/assets/omega_mouth.avdsl" \
-    "aokko=$ROOT/assets/aokko_face.avdsl" \
-    "grok=$ROOT/assets/grok_face.avdsl"
+    "aokko=$ROOT/assets/aokko_face.avdsl"
 
 EXPORTS='_avatar_init,_avatar_set_size,_avatar_width,_avatar_height,_avatar_framebuffer,_avatar_set_expression,_avatar_set_mouth,_avatar_set_manual_gaze,_avatar_set_saccade,_avatar_set_blink,_avatar_set_breath,_avatar_set_colors,_avatar_set_eyebrows_visible,_avatar_set_eye_params,_avatar_set_eyebrow_params,_avatar_set_mouth_params,_avatar_set_cheeks_visible,_avatar_set_cheek_params,_avatar_set_direct,_avatar_tick,_avatar_load_bytecode,_avatar_reset_bytecode,_malloc,_free'
 

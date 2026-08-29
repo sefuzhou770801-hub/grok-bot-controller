@@ -214,10 +214,9 @@
       }
     });
 
-    // Preset selector: load source + send. For the first preset (= firmware
-    // embedded default) issue a reset instead of re-uploading the same
-    // bytecode — leaves the NVS slot empty so future boots use the embedded
-    // copy without any persisted override.
+    // Preset selector: load source and send the compiled bytecode. Reset is
+    // a separate control: it clears NVS and returns to Clawd RLE, which is
+    // not any of these DSL presets.
     presetEl.addEventListener('change', async () => {
       const name = presetEl.value;
       const src = presetMap[name];
@@ -228,29 +227,18 @@
         setMsg(transport.notConnectedMsg + '：仅更新了文本', 'err');
         return;
       }
-      if (presets[0] && name === presets[0].name) {
-        try {
-          const r = await transport.reset();
-          setMsg(`已读取预设「${name}」，真机已回到内置默认` +
-                 (r.raw ? ` (${r.raw})` : ''), 'ok');
-          log(`Avatar DSL 预设 ${name}（重置）`, 'ok');
-        } catch (e) {
-          setMsg('重置失败：' + e.message, 'err');
-        }
-      } else {
-        await compileAndSend();
-      }
+      await compileAndSend();
     });
 
     resetBtn.addEventListener('click', async () => {
       if (!transport.isConnected()) { setMsg(transport.notConnectedMsg, 'err'); return; }
-      if (!confirm('将把真机面部恢复为固件内置默认（删除 NVS 中的覆盖）。确定吗？')) return;
+      if (!confirm('将删除 NVS 中的面部覆盖并回到 Clawd。确定吗？')) return;
       const oldText = resetBtn.textContent;
       resetBtn.disabled = true;
       resetBtn.textContent = '发送中…';
       try {
         const r = await transport.reset();
-        setMsg(`已将真机恢复为默认面部${r.raw ? ` (${r.raw})` : ''}`, 'ok');
+        setMsg(`已删除面部覆盖，真机回到 Clawd${r.raw ? ` (${r.raw})` : ''}`, 'ok');
         log('Avatar DSL 重置', 'ok');
       } catch (e) {
         setMsg('重置失败：' + e.message, 'err');

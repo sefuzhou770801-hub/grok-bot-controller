@@ -78,6 +78,24 @@ jobs:
           cmake --build build-san
           ctest --test-dir build-san --output-on-failure
 
+      # --- avatar: expression ease controller (from/to/hold/blend) --------
+      - name: avatar host tests
+        working-directory: components/avatar/test/host
+        run: |
+          set -euo pipefail
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build
+          ctest --test-dir build --output-on-failure
+
+      - name: avatar host tests (ASan + UBSan)
+        working-directory: components/avatar/test/host
+        run: |
+          set -euo pipefail
+          cmake -S . -B build-san -G Ninja -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all"
+          cmake --build build-san
+          ctest --test-dir build-san --output-on-failure
+
       - name: clawd_motion host tests
         working-directory: components/clawd_motion/test/host
         run: |

@@ -1,9 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Kenta IDA <fuga@fugafuga.org>
 // SPDX-License-Identifier: BSL-1.0
 //
-// Seam tests for avatar::ExpressionController: from/to + eased blend over a
-// fixed duration. The VM has no cross-frame locals, so transition state lives
-// here and is written into DrawContext each apply().
+// Seam tests for avatar::ExpressionController. The VM zeros locals every
+// run(), so from/to/hold/blend live here and are written into DrawContext.
 
 #include <cmath>
 
@@ -18,32 +17,29 @@ using stackchan::avatar::ExpressionController;
 
 namespace {
 
-bool near(float a, float b)
-{
+bool near(float a, float b) {
     return std::fabs(a - b) < 1.0e-5f;
-}
-
-float smoothstep(float t)
-{
-    return t * t * (3.0f - 2.0f * t);
 }
 
 } // namespace
 
-int main()
-{
-    // Idle: Neutral → Neutral, blend already complete.
+int main() {
+    // Idle: Neutral → Neutral, blend already complete, hold inactive.
     {
         ExpressionController c;
         CHECK(c.from() == Expression::Neutral);
         CHECK(c.to() == Expression::Neutral);
         CHECK(near(c.blend(), 1.0f));
+        CHECK(c.hold_to() == Expression::Neutral);
+        CHECK(near(c.hold_blend(), 1.0f));
 
         DrawContext ctx;
         c.apply(ctx, 10'000);
         CHECK(ctx.expression == Expression::Neutral);
         CHECK(ctx.expression_from == Expression::Neutral);
         CHECK(near(ctx.expression_blend, 1.0f));
+        CHECK(ctx.expression_hold_to == Expression::Neutral);
+        CHECK(near(ctx.expression_hold_blend, 1.0f));
     }
 
     // set_target is a request; from/to do not change until apply() sees a clock.
@@ -63,9 +59,26 @@ int main()
         CHECK(c.from() == Expression::Neutral);
         CHECK(c.to() == Expression::Happy);
         CHECK(near(c.blend(), 0.0f));
+        CHECK(c.hold_to() == Expression::Neutral);
+        CHECK(near(c.hold_blend(), 1.0f));
         CHECK(ctx.expression == Expression::Happy);
         CHECK(ctx.expression_from == Expression::Neutral);
         CHECK(near(ctx.expression_blend, 0.0f));
+        CHECK(ctx.expression_hold_to == Expression::Neutral);
+        CHECK(near(ctx.expression_hold_blend, 1.0f));
+    }
+
+    // 100 ms of 300 ms is smoothstep(1/3) = 7/27.
+    {
+        ExpressionController c;
+        c.set_target(Expression::Happy);
+        DrawContext ctx;
+        c.apply(ctx, 0);
+        c.apply(ctx, 100);
+        CHECK(near(c.blend(), 7.0f / 27.0f));
+        CHECK(ctx.expression == Expression::Happy);
+        CHECK(ctx.expression_from == Expression::Neutral);
+        CHECK(near(ctx.expression_blend, 7.0f / 27.0f));
     }
 
     // Midpoint of 300 ms is smoothstep(0.5) = 0.5.
@@ -75,10 +88,10 @@ int main()
         DrawContext ctx;
         c.apply(ctx, 0);
         c.apply(ctx, ExpressionController::kDurationMs / 2);
-        CHECK(near(c.blend(), smoothstep(0.5f)));
+        CHECK(near(c.blend(), 0.5f));
         CHECK(ctx.expression == Expression::Happy);
         CHECK(ctx.expression_from == Expression::Neutral);
-        CHECK(near(ctx.expression_blend, smoothstep(0.5f)));
+        CHECK(near(ctx.expression_blend, 0.5f));
     }
 
     // At duration the blend completes and from catches up to to.
@@ -91,6 +104,8 @@ int main()
         CHECK(c.from() == Expression::Sad);
         CHECK(c.to() == Expression::Sad);
         CHECK(near(c.blend(), 1.0f));
+        CHECK(c.hold_to() == Expression::Sad);
+        CHECK(near(c.hold_blend(), 1.0f));
         CHECK(ctx.expression == Expression::Sad);
         CHECK(ctx.expression_from == Expression::Sad);
         CHECK(near(ctx.expression_blend, 1.0f));
@@ -121,7 +136,8 @@ int main()
         CHECK(near(c.blend(), 1.0f));
     }
 
-    // A new target mid-ease takes the previous target as from and restarts.
+    // Mid-ease retarget freezes the current pair as hold; from stays put so
+    // the visible pose does not snap to the previous target.
     {
         ExpressionController c;
         c.set_target(Expression::Happy);
@@ -130,11 +146,49 @@ int main()
         c.apply(ctx, 100);
         c.set_target(Expression::Sleepy);
         c.apply(ctx, 140);
-        CHECK(c.from() == Expression::Happy);
+        CHECK(c.from() == Expression::Neutral);
         CHECK(c.to() == Expression::Sleepy);
         CHECK(near(c.blend(), 0.0f));
+        CHECK(c.hold_to() == Expression::Happy);
+        CHECK(near(c.hold_blend(), 7.0f / 27.0f));
         CHECK(ctx.expression == Expression::Sleepy);
-        CHECK(ctx.expression_from == Expression::Happy);
+        CHECK(ctx.expression_from == Expression::Neutral);
+        CHECK(near(ctx.expression_blend, 0.0f));
+        CHECK(ctx.expression_hold_to == Expression::Happy);
+        CHECK(near(ctx.expression_hold_blend, 7.0f / 27.0f));
+    }
+
+    // After the nested ease finishes, hold is idle on the new target.
+    {
+        ExpressionController c;
+        c.set_target(Expression::Happy);
+        DrawContext ctx;
+        c.apply(ctx, 0);
+        c.apply(ctx, 100);
+        c.set_target(Expression::Sleepy);
+        c.apply(ctx, 140);
+        c.apply(ctx, 140 + ExpressionController::kDurationMs);
+        CHECK(c.from() == Expression::Sleepy);
+        CHECK(c.to() == Expression::Sleepy);
+        CHECK(near(c.blend(), 1.0f));
+        CHECK(c.hold_to() == Expression::Sleepy);
+        CHECK(near(c.hold_blend(), 1.0f));
+    }
+
+    // Mid-ease return to the source eases from the frozen pose, not a snap.
+    {
+        ExpressionController c;
+        c.set_target(Expression::Happy);
+        DrawContext ctx;
+        c.apply(ctx, 0);
+        c.apply(ctx, 100);
+        c.set_target(Expression::Neutral);
+        c.apply(ctx, 140);
+        CHECK(c.from() == Expression::Neutral);
+        CHECK(c.to() == Expression::Neutral);
+        CHECK(near(c.blend(), 0.0f));
+        CHECK(c.hold_to() == Expression::Happy);
+        CHECK(near(c.hold_blend(), 7.0f / 27.0f));
     }
 
     // Duration sits in the 200–400 ms window the ticket asked for.

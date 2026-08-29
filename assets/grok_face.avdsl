@@ -70,8 +70,8 @@ end
 ----------------------------------------------------------------------
 -- Expression mapping. Body shape is independent; each expression still
 -- only changes capsule proportions, tilt and openness. C++ owns the
--- from/to ease and injects expr_from + expr_blend; this mixes the two
--- parameter sets as a pure function of the current frame.
+-- from/to ease and a one-level hold; this mixes three weighted parameter
+-- sets as a pure function of the current frame.
 ----------------------------------------------------------------------
 fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
   let gx = gaze_h * sz(4) + ox
@@ -81,183 +81,134 @@ fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
   let right_x = tx(160) + (tx(222.98) - tx(160)) * sx + gx
   let right_y = ty(120) + (ty(66.10) - ty(120)) * sy + gy
   let b = clamp(expr_blend, 0, 1)
+  let hb = clamp(expr_hold_blend, 0, 1)
 
-  -- Neutral defaults for the source expression.
-  let f_lhs = 11.3
-  let f_lr = 9.3
-  let f_ldx = 0.469472
-  let f_ldy = 0.882948
-  let f_lo = 1
-  let f_lx = 0
-  let f_ly = 0
-  let f_rhs = 10.8
-  let f_rr = 7.2
-  let f_rdx = 0.469472
-  let f_rdy = 0.882948
-  let f_ro = 1
-  let f_rx = 0
-  let f_ry = 0
-  if expr_from == HAPPY then
-    f_lhs = 3.5
-    f_lr = 8.5
-    f_ldx = -0.258819
-    f_ldy = 0.965926
-    f_lo = 0.62
-    f_rhs = 3.0
-    f_rr = 7.0
-    f_rdx = 0.258819
-    f_rdy = 0.965926
-    f_ro = 0.62
-  elif expr_from == SAD then
-    f_lhs = 12.0
-    f_lr = 7.5
-    f_ldx = 0.469472
-    f_ldy = 0.882948
-    f_lo = 0.88
-    f_ly = 2
-    f_rhs = 11.0
-    f_rr = 6.5
-    f_rdx = -0.469472
-    f_rdy = 0.882948
-    f_ro = 0.88
-    f_ry = 2
-  elif expr_from == ANGRY then
-    f_lhs = 5.0
-    f_lr = 8.0
-    f_ldx = -0.5
-    f_ldy = 0.866025
-    f_lo = 0.72
-    f_rhs = 4.5
-    f_rr = 6.7
-    f_rdx = 0.5
-    f_rdy = 0.866025
-    f_ro = 0.72
-  elif expr_from == DOUBT then
-    f_lhs = 12.0
-    f_lr = 8.5
-    f_ldx = 0.615661
-    f_ldy = 0.788011
-    f_lo = 1
-    f_lx = -1
-    f_rhs = 4.0
-    f_rr = 7.0
-    f_rdx = 0.173648
-    f_rdy = 0.984808
-    f_ro = 0.48
-    f_rx = 1
-  elif expr_from == SLEEPY then
-    f_lhs = 5.0
-    f_lr = 8.0
-    f_ldx = 0.087156
-    f_ldy = 0.996195
-    f_lo = 0.28
-    f_ly = 4
-    f_rhs = 4.5
-    f_rr = 6.7
-    f_rdx = 0.087156
-    f_rdy = 0.996195
-    f_ro = 0.28
-    f_ry = 4
+  let lhs = 0
+  let lr = 0
+  let ldx = 0
+  let ldy = 0
+  let lo = 0
+  let lx = 0
+  let ly = 0
+  let rhs = 0
+  let rr = 0
+  let rdx = 0
+  let rdy = 0
+  let ro = 0
+  let rx = 0
+  let ry = 0
+
+  let i = 0
+  while i < 3 do
+    let e = expr_from
+    let w = (1 - hb) * (1 - b)
+    if i == 1 then
+      e = expr_hold_to
+      w = hb * (1 - b)
+    elif i == 2 then
+      e = expr
+      w = b
+    end
+
+    let p_lhs = 11.3
+    let p_lr = 9.3
+    let p_ldx = 0.469472
+    let p_ldy = 0.882948
+    let p_lo = 1
+    let p_lx = 0
+    let p_ly = 0
+    let p_rhs = 10.8
+    let p_rr = 7.2
+    let p_rdx = 0.469472
+    let p_rdy = 0.882948
+    let p_ro = 1
+    let p_rx = 0
+    let p_ry = 0
+    if e == HAPPY then
+      p_lhs = 3.5
+      p_lr = 8.5
+      p_ldx = -0.258819
+      p_ldy = 0.965926
+      p_lo = 0.62
+      p_rhs = 3.0
+      p_rr = 7.0
+      p_rdx = 0.258819
+      p_rdy = 0.965926
+      p_ro = 0.62
+    elif e == SAD then
+      p_lhs = 12.0
+      p_lr = 7.5
+      p_ldx = 0.469472
+      p_ldy = 0.882948
+      p_lo = 0.88
+      p_ly = 2
+      p_rhs = 11.0
+      p_rr = 6.5
+      p_rdx = -0.469472
+      p_rdy = 0.882948
+      p_ro = 0.88
+      p_ry = 2
+    elif e == ANGRY then
+      p_lhs = 5.0
+      p_lr = 8.0
+      p_ldx = -0.5
+      p_ldy = 0.866025
+      p_lo = 0.72
+      p_rhs = 4.5
+      p_rr = 6.7
+      p_rdx = 0.5
+      p_rdy = 0.866025
+      p_ro = 0.72
+    elif e == DOUBT then
+      p_lhs = 12.0
+      p_lr = 8.5
+      p_ldx = 0.615661
+      p_ldy = 0.788011
+      p_lo = 1
+      p_lx = -1
+      p_rhs = 4.0
+      p_rr = 7.0
+      p_rdx = 0.173648
+      p_rdy = 0.984808
+      p_ro = 0.48
+      p_rx = 1
+    elif e == SLEEPY then
+      p_lhs = 5.0
+      p_lr = 8.0
+      p_ldx = 0.087156
+      p_ldy = 0.996195
+      p_lo = 0.28
+      p_ly = 4
+      p_rhs = 4.5
+      p_rr = 6.7
+      p_rdx = 0.087156
+      p_rdy = 0.996195
+      p_ro = 0.28
+      p_ry = 4
+    end
+
+    lhs = lhs + p_lhs * w
+    lr = lr + p_lr * w
+    ldx = ldx + p_ldx * w
+    ldy = ldy + p_ldy * w
+    lo = lo + p_lo * w
+    lx = lx + p_lx * w
+    ly = ly + p_ly * w
+    rhs = rhs + p_rhs * w
+    rr = rr + p_rr * w
+    rdx = rdx + p_rdx * w
+    rdy = rdy + p_rdy * w
+    ro = ro + p_ro * w
+    rx = rx + p_rx * w
+    ry = ry + p_ry * w
+    i = i + 1
   end
 
-  -- Neutral defaults for the target expression (`expr`).
-  let t_lhs = 11.3
-  let t_lr = 9.3
-  let t_ldx = 0.469472
-  let t_ldy = 0.882948
-  let t_lo = 1
-  let t_lx = 0
-  let t_ly = 0
-  let t_rhs = 10.8
-  let t_rr = 7.2
-  let t_rdx = 0.469472
-  let t_rdy = 0.882948
-  let t_ro = 1
-  let t_rx = 0
-  let t_ry = 0
-  if expr == HAPPY then
-    t_lhs = 3.5
-    t_lr = 8.5
-    t_ldx = -0.258819
-    t_ldy = 0.965926
-    t_lo = 0.62
-    t_rhs = 3.0
-    t_rr = 7.0
-    t_rdx = 0.258819
-    t_rdy = 0.965926
-    t_ro = 0.62
-  elif expr == SAD then
-    t_lhs = 12.0
-    t_lr = 7.5
-    t_ldx = 0.469472
-    t_ldy = 0.882948
-    t_lo = 0.88
-    t_ly = 2
-    t_rhs = 11.0
-    t_rr = 6.5
-    t_rdx = -0.469472
-    t_rdy = 0.882948
-    t_ro = 0.88
-    t_ry = 2
-  elif expr == ANGRY then
-    t_lhs = 5.0
-    t_lr = 8.0
-    t_ldx = -0.5
-    t_ldy = 0.866025
-    t_lo = 0.72
-    t_rhs = 4.5
-    t_rr = 6.7
-    t_rdx = 0.5
-    t_rdy = 0.866025
-    t_ro = 0.72
-  elif expr == DOUBT then
-    t_lhs = 12.0
-    t_lr = 8.5
-    t_ldx = 0.615661
-    t_ldy = 0.788011
-    t_lo = 1
-    t_lx = -1
-    t_rhs = 4.0
-    t_rr = 7.0
-    t_rdx = 0.173648
-    t_rdy = 0.984808
-    t_ro = 0.48
-    t_rx = 1
-  elif expr == SLEEPY then
-    t_lhs = 5.0
-    t_lr = 8.0
-    t_ldx = 0.087156
-    t_ldy = 0.996195
-    t_lo = 0.28
-    t_ly = 4
-    t_rhs = 4.5
-    t_rr = 6.7
-    t_rdx = 0.087156
-    t_rdy = 0.996195
-    t_ro = 0.28
-    t_ry = 4
-  end
-
-  let lhs = f_lhs + (t_lhs - f_lhs) * b
-  let lr = f_lr + (t_lr - f_lr) * b
-  let ldx = f_ldx + (t_ldx - f_ldx) * b
-  let ldy = f_ldy + (t_ldy - f_ldy) * b
-  let lo = f_lo + (t_lo - f_lo) * b
-  let lx = f_lx + (t_lx - f_lx) * b
-  let ly = f_ly + (t_ly - f_ly) * b
   let llen = sqrt(ldx * ldx + ldy * ldy)
   if llen > 0.0001 then
     ldx = ldx / llen
     ldy = ldy / llen
   end
-
-  let rhs = f_rhs + (t_rhs - f_rhs) * b
-  let rr = f_rr + (t_rr - f_rr) * b
-  let rdx = f_rdx + (t_rdx - f_rdx) * b
-  let rdy = f_rdy + (t_rdy - f_rdy) * b
-  let ro = f_ro + (t_ro - f_ro) * b
-  let rx = f_rx + (t_rx - f_rx) * b
-  let ry = f_ry + (t_ry - f_ry) * b
   let rlen = sqrt(rdx * rdx + rdy * rdy)
   if rlen > 0.0001 then
     rdx = rdx / rlen
@@ -498,7 +449,6 @@ fn draw()
 
   fill_rect(0, 0, canvas_w, canvas_h, paper)
   begin_group(0, 0, canvas_w, canvas_h)
-  fill_rect(0, 0, canvas_w, canvas_h, paper)
 
   let cx = tx(160)
   let cy = ty(120)

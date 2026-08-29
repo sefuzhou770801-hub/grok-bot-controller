@@ -56,8 +56,3 @@ add_executable(avatar_vm_test_fuzz test_fuzz.cpp)
 target_link_libraries(avatar_vm_test_fuzz PRIVATE avatar_vm)
 target_compile_options(avatar_vm_test_fuzz PRIVATE -Wall -Wextra)
 add_test(NAME fuzz COMMAND avatar_vm_test_fuzz)
-
-add_executable(avatar_vm_test_expression_controller test_expression_controller.cpp)
-target_link_libraries(avatar_vm_test_expression_controller PRIVATE avatar_vm)
-target_compile_options(avatar_vm_test_expression_controller PRIVATE -Wall -Wextra)
-add_test(NAME expression_controller COMMAND avatar_vm_test_expression_controller)

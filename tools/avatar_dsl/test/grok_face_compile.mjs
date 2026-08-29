@@ -12,7 +12,8 @@ import { MAGIC, VERSION, Op, Var } from '../opcodes.js';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const src = readFileSync(resolve(ROOT, 'assets/grok_face.avdsl'), 'utf8');
-for (const token of ['now_ms', 'mouth_open', 'eye_open', 'expr_from', 'expr_blend']) {
+for (const token of ['now_ms', 'mouth_open', 'eye_open', 'expr_from', 'expr_blend',
+                     'expr_hold_to', 'expr_hold_blend']) {
   if (!src.includes(token)) throw new Error(`grok_face.avdsl missing ${token}`);
 }
 if (!src.includes('0.8369') || !src.includes('0.7819')) {
@@ -45,6 +46,8 @@ let sawCircle = false;
 let sawTriangle = false;
 let sawExprFrom = false;
 let sawExprBlend = false;
+let sawExprHoldTo = false;
+let sawExprHoldBlend = false;
 let pc = 0;
 while (pc < code.length) {
   const op = code[pc++];
@@ -54,6 +57,8 @@ while (pc < code.length) {
     const id = code[pc];
     if (id === Var.expr_from) sawExprFrom = true;
     if (id === Var.expr_blend) sawExprBlend = true;
+    if (id === Var.expr_hold_to) sawExprHoldTo = true;
+    if (id === Var.expr_hold_blend) sawExprHoldBlend = true;
   }
   if (op === Op.PushF32) pc += 4;
   else if (op === Op.PushI8 || op === Op.PushConst || op === Op.PushVar ||
@@ -64,6 +69,8 @@ if (!sawCircle) throw new Error('idle body should still emit fill_circle');
 if (!sawTriangle) throw new Error('eyes/morph body should emit fill_triangle');
 if (!sawExprFrom) throw new Error('blend path should PushVar expr_from');
 if (!sawExprBlend) throw new Error('blend path should PushVar expr_blend');
+if (!sawExprHoldTo) throw new Error('blend path should PushVar expr_hold_to');
+if (!sawExprHoldBlend) throw new Error('blend path should PushVar expr_hold_blend');
 
 console.log({ size: buf.byteLength, constCount, fnCount, codeSize, sawCircle, sawTriangle });
 console.log('OK');
