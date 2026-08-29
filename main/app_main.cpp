@@ -477,18 +477,24 @@ extern "C" void app_main()
     {
         constexpr std::uint32_t kProbeRate = 16'000;
         constexpr std::size_t kProbeSamples = kProbeRate * 300 / 1000; // 300 ms
-        static std::int16_t probe_pcm[kProbeSamples];
-        constexpr float kProbeFreq = 440.0f;
-        constexpr float kTwoPi = 6.28318530718f;
-        for (std::size_t i = 0; i < kProbeSamples; ++i) {
-            probe_pcm[i] = static_cast<std::int16_t>(
-                20000.0f * std::sin(kTwoPi * kProbeFreq * static_cast<float>(i) /
-                                    static_cast<float>(kProbeRate)));
-        }
-        ESP_LOGI(kTag, "16 kHz playRaw probe (300 ms, 440 Hz)");
-        M5.Speaker.playRaw(probe_pcm, kProbeSamples, kProbeRate, /*stereo=*/false);
-        while (M5.Speaker.isPlaying()) {
-            vTaskDelay(pdMS_TO_TICKS(20));
+        // PSRAM + 用完释放：原先的函数内 static 数组让这 9.4 KiB 内部 RAM
+        // 终生陪跑（2026-08-30 内存治理，#13）。playRaw 的源缓冲允许 PSRAM。
+        auto* probe_pcm = static_cast<std::int16_t*>(
+            heap_caps_malloc(kProbeSamples * sizeof(std::int16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        if (probe_pcm != nullptr) {
+            constexpr float kProbeFreq = 440.0f;
+            constexpr float kTwoPi = 6.28318530718f;
+            for (std::size_t i = 0; i < kProbeSamples; ++i) {
+                probe_pcm[i] = static_cast<std::int16_t>(
+                    20000.0f * std::sin(kTwoPi * kProbeFreq * static_cast<float>(i) /
+                                        static_cast<float>(kProbeRate)));
+            }
+            ESP_LOGI(kTag, "16 kHz playRaw probe (300 ms, 440 Hz)");
+            M5.Speaker.playRaw(probe_pcm, kProbeSamples, kProbeRate, /*stereo=*/false);
+            while (M5.Speaker.isPlaying()) {
+                vTaskDelay(pdMS_TO_TICKS(20));
+            }
+            heap_caps_free(probe_pcm);
         }
     }
     M5.Speaker.end();

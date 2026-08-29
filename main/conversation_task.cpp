@@ -18,6 +18,7 @@
 #include <esp_log.h>
 #include <esp_timer.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/idf_additions.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
 
@@ -1304,14 +1305,19 @@ void conversation_task_entry(void* arg)
                                         args.extra_headers, args.seg_buf);
     coordinator->run();
     // run() only returns by deleting the task; keep the object alive regardless.
-    vTaskDelete(nullptr);
+    // WithCaps 创建的任务必须用 WithCaps 删除，否则 PSRAM 栈不归还。
+    vTaskDeleteWithCaps(nullptr);
 }
 
 } // namespace
 
 void start_conversation_task(ConversationTaskArgs& args)
 {
-    xTaskCreatePinnedToCore(conversation_task_entry, "conversation", 8192, &args, 5, nullptr, 0);
+    // 栈放 PSRAM（#13 内存治理）：本任务是 TLS/WS 读写循环，不做 flash
+    // 写（与 say_worker / asr 的 PSRAM 栈同一先例），8 KiB 还给内部 RAM。
+    constexpr UBaseType_t kCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+    xTaskCreatePinnedToCoreWithCaps(conversation_task_entry, "conversation", 8192, &args, 5, nullptr,
+                                    0, kCaps);
 }
 
 } // namespace stackchan::app

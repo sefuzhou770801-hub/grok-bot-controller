@@ -17,6 +17,7 @@
 #include <esp_http_client.h>
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/idf_additions.h>
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
 #include <freertos/task.h>
@@ -329,7 +330,7 @@ void versions_fetch_task(void* arg)
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
     xSemaphoreGive(v->done);
-    vTaskDelete(nullptr);
+    vTaskDeleteWithCaps(nullptr);
 }
 
 } // namespace
@@ -341,12 +342,12 @@ bool fetch_versions_json(std::string& out)
     v.done = xSemaphoreCreateBinary();
     if (v.done == nullptr) return false;
 
-    // 12 KiB internal-RAM stack — matches the release OTA worker's
-    // headroom, since both do the same mbedTLS handshake + a small read
-    // loop. No flash writes here, so a PSRAM stack would technically be
-    // OK, but we keep it in internal RAM for consistency.
-    BaseType_t ok = xTaskCreate(&versions_fetch_task, "vfetch", 12 * 1024, &v,
-                                tskIDLE_PRIORITY + 3, nullptr);
+    // 12 KiB stack in PSRAM（#13 内存治理）：本任务只做 mbedTLS 握手 +
+    // JSON 读取，无 flash 写；内部 RAM 常态水位太低，12 KiB 的内部栈
+    // 峰值分配曾直接失败（2026-08-30 真机 ALLOC_FAIL 12288）。
+    constexpr UBaseType_t kCaps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+    BaseType_t ok = xTaskCreateWithCaps(&versions_fetch_task, "vfetch", 12 * 1024, &v,
+                                        tskIDLE_PRIORITY + 3, nullptr, kCaps);
     if (ok != pdPASS) {
         vSemaphoreDelete(v.done);
         return false;
