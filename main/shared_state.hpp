@@ -159,29 +159,25 @@ public:
     };
     Conversation conv;
 
-    void set_voice_state(stackchan::avatar::VoiceState s) noexcept
-    {
+    void set_voice_state(stackchan::avatar::VoiceState s) noexcept {
         conv.voice_state.store(static_cast<std::uint8_t>(s), std::memory_order_relaxed);
         face.activity_seq.fetch_add(1, std::memory_order_relaxed);
     }
 
     // `hold_ms == 0` keeps the overlay until `clear_face_overlay`.
-    void request_face_overlay(stackchan::avatar::Expression e, std::uint32_t hold_ms) noexcept
-    {
+    void request_face_overlay(stackchan::avatar::Expression e, std::uint32_t hold_ms) noexcept {
         face.overlay_expression.store(static_cast<std::int32_t>(e), std::memory_order_relaxed);
         face.overlay_hold_ms.store(hold_ms, std::memory_order_relaxed);
         face.overlay_seq.fetch_add(1, std::memory_order_release);
         face.activity_seq.fetch_add(1, std::memory_order_relaxed);
     }
 
-    void clear_face_overlay() noexcept
-    {
+    void clear_face_overlay() noexcept {
         face.overlay_expression.store(-1, std::memory_order_relaxed);
         face.overlay_seq.fetch_add(1, std::memory_order_release);
     }
 
-    void note_face_activity() noexcept
-    {
+    void note_face_activity() noexcept {
         face.activity_seq.fetch_add(1, std::memory_order_relaxed);
     }
 

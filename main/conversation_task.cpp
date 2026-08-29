@@ -50,7 +50,6 @@ constexpr const char* kTag = "conv-task";
 // any companding happens inside the ConversationService impl.
 constexpr std::size_t kMaxMicChunkSamples = 640; // worst case: 40 ms @ 16 kHz
 constexpr std::uint32_t kEnvelopeStepMs = 16;
-constexpr std::uint32_t kListenFaceMs = 6000; // 唤醒瞬间聆听脸展示时长
 
 // Playback ring: M5.Speaker.playRaw references the buffer (no copy) and its
 // resampler reads it sample-by-sample. If that buffer is in PSRAM it contends
@@ -109,7 +108,8 @@ conv::ToolDefinition make_set_expression_tool()
         .description = "改变 Stack-chan 的脸部表情。需要表达情绪时使用。",
         .parameters_json = R"({"type":"object","properties":{"expression":{"type":"string",)"
                            R"("enum":["neutral","idle","happy","sad","angry","doubt","sleepy",)"
-                           R"("listening","thinking","excited","curious","confused","surprised","dizzy","affection","bored"]}},)"
+                           R"("listening","thinking","excited","curious","confused",)"
+                           R"("surprised","dizzy","affection","bored"]}},)"
                            R"("required":["expression"]})",
     };
 }
@@ -567,8 +567,9 @@ private:
         case Local::Listening:
             // Session-ready standby is NOT the listening face: mapping it to
             // VoiceState::Listening would pin the face forever and make idle
-            // decay unreachable. The wake-moment face is a short overlay set
-            // in enter_listening(); standby stays Idle so decay can run.
+            // decay unreachable. The listening face comes from real listening
+            // moments instead — the wake-word overlay (asr_probe) and the
+            // SpeechStarted event below; standby stays Idle so decay can run.
             vs = VoiceState::Idle;
             break;
         case Local::Thinking:
@@ -906,6 +907,10 @@ private:
         case conv::ConversationEventType::SpeechStarted:
             ESP_LOGI(kTag, "user speech started");
             state_.note_face_activity();
+            // The user is actually talking to us — this is the listening
+            // window. SpeechStopped flips Local to Thinking which overwrites
+            // it, and any later set_local returns the state to Idle.
+            state_.set_voice_state(avatar::VoiceState::Listening);
             break;
 
         case conv::ConversationEventType::SpeechStopped:

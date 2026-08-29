@@ -144,8 +144,9 @@ void detect_task(void*) {
             stackchan::app::settings_sinks::say_kana("はい");  // 声で「はい」と返事
             ESP_LOGI(kTag, "★★ WAKE WORD DETECTED (idx=%d) ★★", r->wake_word_index);
             if (g_state != nullptr) {
+                // 唤醒后聆听神态出现（Issue #4 直观验收项）——不是 Happy。
                 g_state->request_face_overlay(
-                    stackchan::avatar::Expression::Happy,
+                    stackchan::avatar::Expression::Listening,
                     stackchan::avatar::ExpressionController::kDefaultOverlayHoldMs);
                 g_state->set_balloon_text("はいï¼", 1800);  // 「はい？」
             }
