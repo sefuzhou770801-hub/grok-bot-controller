@@ -396,7 +396,8 @@ fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
     rdy = sdy
   end
 
-  -- Persistent listening: slow tilt rock so the pose is not a freeze-frame.
+  -- Persistent listening: slow tilt rock plus a gentle up-down sweep
+  -- (aora 35 等待输入: lookY sweep while waiting for the speaker).
   if expr == LISTENING then
     let rock_t = (now_ms / 90) % 40
     let rock = rock_t
@@ -406,17 +407,25 @@ fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
     rock = (rock - 10) / 10 * 0.12
     ldx = ldx + rock
     rdx = rdx - rock
+    let lsw = (now_ms / 55) % 40
+    if lsw > 20 then
+      lsw = 40 - lsw
+    end
+    let lsv = (lsw - 10) / 10 * 5
+    ly = ly + lsv
+    ry = ry + lsv
   end
 
-  -- Persistent thinking: gaze drifts up and a slow blink.
+  -- Persistent thinking: gaze patrols side to side up top, with a slow
+  -- blink (aora 30 思考中: lookX sine amp 9 period 2600 under a raised gaze).
   if expr == THINKING then
-    let drift_t = (now_ms / 80) % 60
-    let drift = drift_t
-    if drift_t > 30 then
-      drift = 60 - drift_t
+    let pat = (now_ms / 65) % 40
+    if pat > 20 then
+      pat = 40 - pat
     end
-    ly = ly - drift / 30 * 2
-    ry = ry - drift / 30 * 2
+    let pav = (pat - 10) / 10 * 8
+    lx = lx + pav
+    rx = rx + pav
     let bt = (now_ms / 40) % 80
     let lid = 1
     if bt > 70 then
@@ -429,6 +438,95 @@ fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
     end
     lo = lo * lid
     ro = ro * lid
+  end
+
+  -- Sad: heavy slow sink and rise, like a sigh (aora 12 失落).
+  if expr == SAD then
+    let sk = (now_ms / 90) % 40
+    if sk > 20 then
+      sk = 40 - sk
+    end
+    let skv = (sk - 10) / 10 * 3
+    ly = ly + skv
+    ry = ry + skv
+  end
+
+  -- Doubt: slow see-saw, one eye rises as the other dips (aora 11 疑惑).
+  if expr == DOUBT then
+    let ss = (now_ms / 80) % 40
+    if ss > 20 then
+      ss = 40 - ss
+    end
+    let ssv = (ss - 10) / 10 * 1.8
+    ly = ly - ssv
+    ry = ry + ssv
+    rx = rx + ssv
+  end
+
+  -- Curious: small sizing-up sweep (aora 03 好奇: lookX amp 2.4 period 2800).
+  if expr == CURIOUS then
+    let cu = (now_ms / 70) % 40
+    if cu > 20 then
+      cu = 40 - cu
+    end
+    let cuv = (cu - 10) / 10 * 2.4
+    lx = lx + cuv
+    rx = rx + cuv
+  end
+
+  -- Confused: the two gazes drift out of phase and never align
+  -- (aora 20 困惑: left/right lookX same wave, half-period apart).
+  if expr == CONFUSED then
+    let cf = (now_ms / 80) % 40
+    if cf > 20 then
+      cf = 40 - cf
+    end
+    lx = lx + (cf - 10) / 10 * 2.5
+    let cg = ((now_ms + 1600) / 80) % 40
+    if cg > 20 then
+      cg = 40 - cg
+    end
+    rx = rx + (cg - 10) / 10 * 2.5
+  end
+
+  -- Excited: quick approving nod (aora 19 满意: eyes y amp 5 period 1050).
+  if expr == EXCITED then
+    let nd = (now_ms / 26) % 40
+    if nd > 20 then
+      nd = 40 - nd
+    end
+    let ndv = (nd - 10) / 10 * 4
+    ly = ly + ndv
+    ry = ry + ndv
+  end
+
+  -- Affection: gaze slips shyly aside while the lids purr (aora 14 害羞).
+  if expr == AFFECTION then
+    let af = (now_ms / 65) % 40
+    if af > 20 then
+      af = 40 - af
+    end
+    let afv = (af - 10) / 10 * 2
+    lx = lx + afv
+    rx = rx + afv
+    let pu = (now_ms / 45) % 40
+    if pu > 20 then
+      pu = 40 - pu
+    end
+    let puv = 0.86 + pu / 20 * 0.14
+    lo = lo * puv
+    ro = ro * puv
+  end
+
+  -- Bored: each eye also wanders slightly its own way (aora 04 发呆).
+  if expr == BORED then
+    let bw = (now_ms / 170) % 40
+    if bw > 20 then
+      bw = 40 - bw
+    end
+    let bwv = (bw - 10) / 10 * 2
+    lx = lx - bwv
+    rx = rx + bwv
   end
 
   -- 与上方眼睛段的归一化同形：DSL 函数只有单返回值，双分量抽不成共享函数，保留两段。
@@ -469,6 +567,18 @@ fn fill_ellipse(cx, cy, rx, ry, color)
 end
 
 ----------------------------------------------------------------------
+-- One "z" glyph: two bars and a diagonal band. Used by the sleeping
+-- zzz trail (aora 00 睡眠 signature), drawn in body color on the paper.
+----------------------------------------------------------------------
+fn draw_z(x, y, s, color)
+  let th = clamp(s * 0.24, 1, 99)
+  fill_rect(x, y, s, th, color)
+  fill_rect(x, y + s - th, s, th, color)
+  fill_triangle(x + s - th, y + th, x + s, y + th, x, y + s - th, color)
+  fill_triangle(x + s, y + th, x + th, y + s - th, x, y + s - th, color)
+end
+
+----------------------------------------------------------------------
 -- Entry point. RGB565（黑底白表情，2026-08-29 老板定案）:
 --   0x0000  = black background
 --   0xFFFF  = white face body
@@ -499,6 +609,25 @@ fn draw()
     right_lid = 1
   elif kind == 4 then
     left_lid = 1
+  end
+
+  -- Boot wake-up: groggy stagger open over the first two seconds
+  -- (aora 01 唤醒: closed, one eye first, both half, then fully open).
+  if now_ms < 2100 then
+    let wk = 0.1
+    let wr = 0.1
+    if now_ms >= 1400 then
+      wk = 0.3 + (now_ms - 1400) / 700 * 0.7
+      wr = wk
+    elif now_ms >= 820 then
+      wk = 0.3
+      wr = 0.3
+    elif now_ms >= 420 then
+      wk = 0.55
+      wr = 0.12
+    end
+    left_lid = left_lid * wk
+    right_lid = right_lid * wr
   end
 
   -- Sleepy: extra slow lid droop on top of the static pose.
@@ -586,11 +715,70 @@ fn draw()
     oy = (vy - 15) / 15 * sz(8)
   end
 
+  -- Idle glance: look to one side, linger, look to the other
+  -- (aora 02 待机放空). Only between orbit bursts so they do not stack.
+  if expr == NEUTRAL then
+    if ot >= 1200 then
+      let gph = (now_ms / 120) % 40
+      let ga = 0
+      if gph < 4 then
+        ga = gph / 4
+      elif gph < 18 then
+        ga = 1
+      elif gph < 22 then
+        ga = 1 - (gph - 18) / 4 * 2
+      elif gph < 36 then
+        ga = -1
+      else
+        ga = -1 + (gph - 36) / 4
+      end
+      ox = ox + ga * sz(9)
+      let gv = (now_ms / 100) % 41
+      if gv > 20.5 then
+        gv = 41 - gv
+      end
+      oy = oy + (gv - 10.25) / 10.25 * sz(2)
+    end
+  end
+
+  -- Angry: constant fine tremble (aora 21 生气: body x jitter).
+  if expr == ANGRY then
+    let tr = floor(now_ms / 70) % 2
+    ox = ox + (tr * 2 - 1) * sz(1.3)
+  end
+
   fill_rect(0, 0, canvas_w, canvas_h, paper)
   begin_group(0, 0, canvas_w, canvas_h)
 
+  -- Aora-style life: joy states hop, everyone breathes.
+  let hop = 0
+  if expr == HAPPY then
+    let hp = (now_ms / 35) % 40
+    if hp > 20 then
+      hp = 40 - hp
+    end
+    hop = 0 - hp / 20 * sz(2.6)
+  elif expr == EXCITED then
+    let he = (now_ms / 26) % 40
+    if he > 20 then
+      he = 40 - he
+    end
+    hop = 0 - he / 20 * sz(2)
+  end
+  let breath_step = 85
+  let breath_amp = 0.012
+  if expr == SLEEPY then
+    breath_step = 115
+    breath_amp = 0.018
+  end
+  let bre = (now_ms / breath_step) % 40
+  if bre > 20 then
+    bre = 40 - bre
+  end
+  let breath = 1 + (bre - 10) / 10 * breath_amp
+
   let cx = tx(160)
-  let cy = ty(120)
+  let cy = ty(120) + hop
   let b = clamp(expr_blend, 0, 1)
   let hb = clamp(expr_hold_blend, 0, 1)
   let hb2 = clamp(expr_hold2_blend, 0, 1)
@@ -638,7 +826,7 @@ fn draw()
     body_scale_mix = body_scale_mix + s * w
     mix_i = mix_i + 1
   end
-  let base_r = sz(100) * body_scale_mix
+  let base_r = sz(100) * body_scale_mix * breath
   let eye_scale = (sx + sy) / 2
 
   if talk > 0.05 then
@@ -646,6 +834,29 @@ fn draw()
   else
     fill_circle(cx, cy, base_r, body)
   end
-  grok_eyes(eye_scale, eyes, ox, oy, left_lid, right_lid, sx, sy)
+
+  -- Sleeping zzz trail floating up past the top-right edge (aora 00 睡眠).
+  if expr == SLEEPY then
+    let zi = 0
+    while zi < 3 do
+      let zc = ((now_ms + zi * 900) / 70) % 40
+      let zr = zc / 40 * sz(12)
+      let zx = tx(244 + zi * 14)
+      let zy = ty(58 - zi * 16) - zr
+      let zs = sz(7 + zi * 2)
+      draw_z(zx, zy, zs, body)
+      zi = zi + 1
+    end
+  end
+
+  -- Shy blush patches once the affection pose has landed (aora 14 害羞).
+  if expr == AFFECTION then
+    if b > 0.6 then
+      fill_circle(cx - sz(46), cy + sz(16), sz(9), 0xFD15)
+      fill_circle(cx + sz(46), cy + sz(16), sz(9), 0xFD15)
+    end
+  end
+
+  grok_eyes(eye_scale, eyes, ox, oy + hop, left_lid, right_lid, sx, sy)
   end_group()
 end
