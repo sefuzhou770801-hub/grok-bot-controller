@@ -299,6 +299,10 @@ void worker_task(void* /*arg*/)
     std::uint32_t pcm_sample_rate = 0;
     bool playback_started = false;
     bool i2s_acquired = false;
+    // playRaw 失败（I2S/DMA 分配不出来）后的退避：不退避会以毫秒级频率
+    // 反复走 I2S init 失败路径，把本核 IDLE 饿死、触摸失去响应
+    // （2026-08-30 真机事故：INT free 7KB 时 i2s_alloc_dma_desc 自旋）。
+    TickType_t play_fail_backoff_until = 0;
     std::size_t raw_len = 0;
 
     auto teardown_session = [&]() {
@@ -468,16 +472,21 @@ void worker_task(void* /*arg*/)
             }
 
             // --- Feed speaker as long as queue has space + ring has data ---
-            if (playback_started && pcm_sample_rate > 0) {
+            if (playback_started && pcm_sample_rate > 0 &&
+                xTaskGetTickCount() >= play_fail_backoff_until) {
                 while (M5.Speaker.isPlaying(kSpeakerChannel) < 4 &&
                        ring.available_read() >= kPlaybackChunkSamples) {
                     auto* buf = scratches[scratch_idx];
                     scratch_idx = (scratch_idx + 1) % scratches.size();
                     ring.pop(buf, kPlaybackChunkSamples);
                     update_mouth(buf, kPlaybackChunkSamples);
-                    M5.Speaker.playRaw(buf, kPlaybackChunkSamples, pcm_sample_rate,
-                                       /*stereo=*/false, /*repeat=*/1, kSpeakerChannel,
-                                       /*stop_current_sound=*/false);
+                    if (!M5.Speaker.playRaw(buf, kPlaybackChunkSamples, pcm_sample_rate,
+                                            /*stereo=*/false, /*repeat=*/1, kSpeakerChannel,
+                                            /*stop_current_sound=*/false)) {
+                        ESP_LOGW(kTag, "playRaw failed (I2S/DMA?); backing off 1 s");
+                        play_fail_backoff_until = xTaskGetTickCount() + pdMS_TO_TICKS(1000);
+                        break;
+                    }
                     chunks_played++;
                 }
             }
