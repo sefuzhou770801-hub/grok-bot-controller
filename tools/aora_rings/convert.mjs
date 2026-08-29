@@ -54,6 +54,58 @@ const SCALE = 88 / maxD; // 环最远点落在半径 88，眼睛不顶球边
 console.log(`used rings: ${usedRings.join(',')}  maxD=${maxD.toFixed(1)}  scale=${SCALE.toFixed(3)}`);
 
 const ringIndex = new Map(usedRings.map((r, i) => [r, i]));
+
+// ---- NEUTRAL 摆正副本（2026-08-30 老板：常态不要倒八字眼）----
+// aora 的平静环带歪头姿态：两眼同向斜、一高一低，黑底白圆上读成倒霉相。
+// 给待机池生成矫正副本：各眼绕质心把长轴转竖直、两眼等高、左右对称于
+// 球心，轮廓形状（圆润度/粗细/长短）保持 aora 原样。其他表情用原环。
+function uprightCopy(pair, forceMidY) {
+  const centered = pair.map((ring) => {
+    let cx = 0, cy = 0;
+    for (const [x, y] of ring) { cx += x; cy += y; }
+    cx /= ring.length; cy /= ring.length;
+    // PCA 主轴：比较两个候选方向的方差，取长轴
+    let sxx = 0, syy = 0, sxy = 0;
+    for (const [x, y] of ring) {
+      const dx = x - cx, dy = y - cy;
+      sxx += dx * dx; syy += dy * dy; sxy += dx * dy;
+    }
+    const theta = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+    const varAlong = (a) => {
+      const c = Math.cos(a), s = Math.sin(a);
+      return c * c * sxx + 2 * c * s * sxy + s * s * syy;
+    };
+    const longAxis = varAlong(theta) >= varAlong(theta + Math.PI / 2) ? theta : theta + Math.PI / 2;
+    const rot = Math.PI / 2 - longAxis; // 长轴转到竖直
+    const cr = Math.cos(rot), sr = Math.sin(rot);
+    const pts = ring.map(([x, y]) => {
+      const dx = x - cx, dy = y - cy;
+      return [dx * cr - dy * sr, dx * sr + dy * cr];
+    });
+    return { cx, cy, pts };
+  });
+  const gap = Math.abs(centered[1].cx - centered[0].cx);
+  const midY = forceMidY ?? (centered[0].cy + centered[1].cy) / 2;
+  return {
+    midY,
+    pair: centered.map((eye, side) => {
+      const nx = HEAD + (side === 0 ? -gap / 2 : gap / 2);
+      return eye.pts.map(([dx, dy]) => [nx + dx, midY + dy]);
+    }),
+  };
+}
+
+// 副本统一用第一环的高度：轮换只变形状（粗细长短），眼位不上下跳。
+const neutralPoolSrc = byId.get('02').pool;
+const uprightRows = [];
+const uprightIndexBySrc = new Map();
+let neutralMidY;
+for (const ri of neutralPoolSrc) {
+  const u = uprightCopy(RINGS.EXPRESSIONS[ri], neutralMidY);
+  neutralMidY = neutralMidY ?? u.midY;
+  uprightIndexBySrc.set(ri, usedRings.length + uprightRows.length);
+  uprightRows.push({ src: ri, pair: u.pair });
+}
 // C++ f32 字面量：必须带小数点（77f 非法，77.0f 合法）。
 const f = (v) => {
   let s = v.toFixed(2).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
@@ -63,19 +115,23 @@ const f = (v) => {
 };
 
 // 环数据：屏幕坐标（球心 160,120）
-const ringRows = usedRings.map((ri) => {
-  const sides = RINGS.EXPRESSIONS[ri].map((ring) =>
+const emitPair = (pair, label) => {
+  const sides = pair.map((ring) =>
     ring.map(([x, y]) => `${f(160 + (x - HEAD) * SCALE)}f, ${f(120 + (y - HEAD) * SCALE)}f`).join(', ')
   );
-  return `    { // aora ring ${ri}\n        {${sides[0]}},\n        {${sides[1]}},\n    },`;
-});
+  return `    { // ${label}\n        {${sides[0]}},\n        {${sides[1]}},\n    },`;
+};
+const ringRows = usedRings.map((ri) => emitPair(RINGS.EXPRESSIONS[ri], `aora ring ${ri}`));
+for (const u of uprightRows) {
+  ringRows.push(emitPair(u.pair, `aora ring ${u.src} 摆正副本（NEUTRAL 专用）`));
+}
 
 // 表情配置
 const ANIM_KIND = { sine: 0, glance: 1, jitter: 2, scan: 3 };
 const TARGET = { eyes: 0, left: 1, right: 2 };
 const cfgRows = MAP.map(([name, id]) => {
   const e = byId.get(id);
-  const pool = e.pool.map((r) => ringIndex.get(r));
+  const pool = e.pool.map((r) => (id === '02' ? uprightIndexBySrc.get(r) : ringIndex.get(r)));
   while (pool.length < 6) pool.push(pool[0]);
   const poolMs = e.poolMs ? (e.poolMs[0] + e.poolMs[1]) / 2 : 6000;
   const openness = e.openness ?? 1;
@@ -119,7 +175,7 @@ const hpp = `// SPDX-FileCopyrightText: 2026 Kenta IDA <fuga@fugafuga.org>
 namespace stackchan::app::aora {
 
 inline constexpr std::size_t kRingPoints = 48;
-inline constexpr std::size_t kRingCount = ${usedRings.length};
+inline constexpr std::size_t kRingCount = ${usedRings.length + uprightRows.length};
 
 // 每环：左右眼各 48 点屏幕坐标 (x0,y0,x1,y1,...)，球心 160,120。
 inline constexpr float kRings[kRingCount][2][kRingPoints * 2] = {
