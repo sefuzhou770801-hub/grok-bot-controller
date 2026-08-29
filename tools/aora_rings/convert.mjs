@@ -39,9 +39,14 @@ const MAP = [
   ['Dizzy', '17'], ['Affection', '14'], ['Bored', '04'],
 ];
 
+// 池覆盖：'14' 害羞去掉 ring 0（普通斜杠眼混在里面读不出害羞，
+// 2026-08-30 老板「摸摸应该是害羞状态」），只留羞怯 24 与闭合 13。
+const POOL_OVERRIDE = { '14': [24, 13] };
+const poolOf = (id) => POOL_OVERRIDE[id] ?? byId.get(id).pool;
+
 // 缩放：aora 头心 HEAD_C，把所有用到的环装进我们的球（r=100，留边）。
 const HEAD = RINGS.HEAD_C;
-const usedRings = [...new Set(MAP.flatMap(([, id]) => byId.get(id).pool))].sort((a, b) => a - b);
+const usedRings = [...new Set(MAP.flatMap(([, id]) => poolOf(id)))].sort((a, b) => a - b);
 let maxD = 0;
 for (const ri of usedRings) {
   for (const ring of RINGS.EXPRESSIONS[ri]) {
@@ -131,7 +136,8 @@ const ANIM_KIND = { sine: 0, glance: 1, jitter: 2, scan: 3 };
 const TARGET = { eyes: 0, left: 1, right: 2 };
 const cfgRows = MAP.map(([name, id]) => {
   const e = byId.get(id);
-  const pool = e.pool.map((r) => (id === '02' ? uprightIndexBySrc.get(r) : ringIndex.get(r)));
+  const srcPool = poolOf(id);
+  const pool = srcPool.map((r) => (id === '02' ? uprightIndexBySrc.get(r) : ringIndex.get(r)));
   while (pool.length < 6) pool.push(pool[0]);
   const poolMs = e.poolMs ? (e.poolMs[0] + e.poolMs[1]) / 2 : 6000;
   const openness = e.openness ?? 1;
@@ -155,7 +161,7 @@ const cfgRows = MAP.map(([name, id]) => {
     });
   while (anims.length < 3) anims.push('{0, 0, 0, 0.0f, 1.0f, 0.0f}');
   return `    { /* ${name} <- aora ${id} ${e.name} */\n` +
-         `        {${pool.join(', ')}}, ${e.pool.length}, ${f(poolMs)}f, ${f(openness)}f,\n` +
+         `        {${pool.join(', ')}}, ${srcPool.length}, ${f(poolMs)}f, ${f(openness)}f,\n` +
          `        ${f(off('left', 0) * SCALE)}f, ${f(off('left', 1) * SCALE)}f, ` +
          `${f(off('right', 0) * SCALE)}f, ${f(off('right', 1) * SCALE)}f,\n` +
          `        {${anims.join(',\n         ')}}, ${(e.anims ?? []).filter((a) => TARGET[a.target] !== undefined && ANIM_KIND[a.type] !== undefined && ['lookX','lookY','x','y'].includes(a.prop)).slice(0,3).length},\n    },`;

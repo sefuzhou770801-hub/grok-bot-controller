@@ -264,9 +264,12 @@ fn draw()
     end
   end
 
-  -- Petting: a little heart floats up beside the head.
+  -- Petting = aora 14 害羞: blush under the shy eyes (positions follow the
+  -- ring-24 eye centres), plus a little heart floating up beside the head.
   if expr == AFFECTION then
     if b > 0.6 then
+      fill_ellipse(tx(152), ty(172), sz(11), sz(6), 0xFD15)
+      fill_ellipse(tx(203), ty(175), sz(11), sz(6), 0xFD15)
       let hc = (now_ms / 60) % 40
       let hyy = ty(52) - hc / 40 * sz(16)
       draw_heart(tx(243), hyy, sz(6 + 2 * (hc / 40)), body)
