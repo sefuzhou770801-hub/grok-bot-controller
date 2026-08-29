@@ -218,7 +218,7 @@ constexpr const char* kTag = "stackchan";
                     const int cur = g_state->face.expression.load(std::memory_order_relaxed);
                     int next = cur;
                     for (int i = 0; i < 4 && next == cur; ++i) {
-                        next = static_cast<int>(esp_random() % 6);
+                        next = static_cast<int>(esp_random() % avatar::kExpressionCount);
                     }
                     g_state->face.expression.store(next, std::memory_order_relaxed);
                     ESP_LOGI(kTag, "shake |a|=%.2fg → expression %d", mag, next);
@@ -231,7 +231,8 @@ constexpr const char* kTag = "stackchan";
         // check is harmless universally.
         if (M5.BtnB.wasPressed()) {
             const int cur = g_state->face.expression.load(std::memory_order_relaxed);
-            g_state->face.expression.store((cur + 1) % 6, std::memory_order_relaxed);
+            g_state->face.expression.store(
+                (cur + 1) % static_cast<int>(avatar::kExpressionCount), std::memory_order_relaxed);
             if (g_board != nullptr) (void)g_board->vibrate(30);
         }
         // BtnA on StopWatch (= Yellow / G2) — toggle the device_ui open/close.

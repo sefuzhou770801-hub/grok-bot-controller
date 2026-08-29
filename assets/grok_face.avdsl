@@ -556,18 +556,18 @@ fn draw()
   let b = clamp(expr_blend, 0, 1)
   let hb = clamp(expr_hold_blend, 0, 1)
   let hb2 = clamp(expr_hold2_blend, 0, 1)
-  let bs = 0
-  let bi = 0
-  while bi < 4 do
+  let body_scale_mix = 0
+  let mix_i = 0
+  while mix_i < 4 do
     let e = expr_from
     let w = (1 - hb2) * (1 - hb) * (1 - b)
-    if bi == 1 then
+    if mix_i == 1 then
       e = expr_hold2_to
       w = hb2 * (1 - hb) * (1 - b)
-    elif bi == 2 then
+    elif mix_i == 2 then
       e = expr_hold_to
       w = hb * (1 - b)
-    elif bi == 3 then
+    elif mix_i == 3 then
       e = expr
       w = b
     end
@@ -593,10 +593,10 @@ fn draw()
     elif e == DIZZY then
       s = 1.02
     end
-    bs = bs + s * w
-    bi = bi + 1
+    body_scale_mix = body_scale_mix + s * w
+    mix_i = mix_i + 1
   end
-  let base_r = sz(100) * bs
+  let base_r = sz(100) * body_scale_mix
   let eye_scale = (sx + sy) / 2
 
   if morph > 0.02 then

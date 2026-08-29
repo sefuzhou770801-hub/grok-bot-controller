@@ -26,7 +26,6 @@ enum class Expression : std::uint8_t {
     Dizzy = 12,
 };
 
-inline constexpr std::size_t kExpressionCount =
-    static_cast<std::size_t>(Expression::Dizzy) + 1;
+inline constexpr std::size_t kExpressionCount = static_cast<std::size_t>(Expression::Dizzy) + 1;
 
 } // namespace stackchan::avatar

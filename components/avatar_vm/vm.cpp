@@ -33,10 +33,8 @@ inline float expression_to_f(avatar::Expression e) noexcept
     return static_cast<float>(static_cast<std::uint8_t>(e));
 }
 
-static_assert(static_cast<std::uint8_t>(avatar::Expression::Dizzy) ==
-              static_cast<std::uint8_t>(ExprValue::Dizzy));
-static_assert(avatar::kExpressionCount ==
-              static_cast<std::size_t>(avatar::Expression::Dizzy) + 1);
+static_assert(static_cast<std::uint8_t>(avatar::Expression::Dizzy) == static_cast<std::uint8_t>(ExprValue::Dizzy));
+static_assert(avatar::kExpressionCount == static_cast<std::size_t>(avatar::Expression::Dizzy) + 1);
 
 // Compute the design→canvas uniform scale the original face.cpp used.
 // For circular displays we fit the 320×240 design rect by its DIAGONAL
