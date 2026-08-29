@@ -34,7 +34,7 @@ Stack-chan firmware の `/mcp/*` REST API ([components/wifi_config_service/http_
 | Tool | 説明 |
 |---|---|
 | `say(text)` | 発話。text は ひらがな (jtts は漢字 → 読み変換 を持たない) |
-| `set_expression(expression)` | `neutral` / `idle` / `happy` / `sad` / `angry` / `doubt` / `sleepy` / `listening` / `thinking` / `excited` / `curious` / `confused` / `surprised` / `dizzy` |
+| `set_expression(expression)` | `neutral` / `idle` / `happy` / `sad` / `angry` / `doubt` / `sleepy` / `listening` / `thinking` / `excited` / `curious` / `confused` / `surprised` / `dizzy` / `affection` / `bored` |
 | `set_balloon(text, hold_ms?)` | アバター下の吹き出しに表示 |
 | `get_state()` | FW ver / IP / Wi-Fi / バッテリ / ボード種別を JSON で取得 |
 

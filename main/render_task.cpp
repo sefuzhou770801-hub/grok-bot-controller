@@ -106,7 +106,11 @@ void render_task_entry(void* arg) {
     // the VM has no face, and the restore path when the user clears an override.
     bool avatar_vm_selected = true;
 
-    int last_expression = -1;
+    std::int32_t last_expression = -1;
+    std::int32_t last_mood = -1;
+    std::int32_t last_voice = -1;
+    std::uint32_t last_overlay_cmd = 0;
+    std::uint32_t last_activity_seq = 0;
     std::uint32_t last_balloon_version = 0;
     std::uint32_t last_face_config_version = 0;
     std::uint32_t last_face_bytecode_version = 0;
@@ -188,12 +192,39 @@ void render_task_entry(void* arg) {
             clawd_face.request_full_repaint();
         }
 
-        const int expr = args.state->face.expression.load(std::memory_order_relaxed);
-        if (expr != last_expression) {
-            const auto expression = static_cast<avatar::Expression>(expr);
-            avatar.set_expression(expression);
-            clawd_face.set_expression(expression);
-            last_expression = expr;
+        const std::int32_t mood = args.state->face.expression.load(std::memory_order_relaxed);
+        if (mood != last_mood) {
+            avatar.set_expression(static_cast<avatar::Expression>(mood));
+            last_mood = mood;
+        }
+        const std::int32_t voice =
+            static_cast<std::int32_t>(args.state->conv.voice_state.load(std::memory_order_relaxed));
+        if (voice != last_voice) {
+            avatar.set_voice_state(static_cast<avatar::VoiceState>(voice));
+            last_voice = voice;
+        }
+        // One atomic word per overlay command: a concurrent writer can never
+        // hand us the expression of one command and the hold of another.
+        const std::uint32_t overlay_cmd = args.state->face.overlay_command.load(std::memory_order_acquire);
+        if (overlay_cmd != last_overlay_cmd) {
+            last_overlay_cmd = overlay_cmd;
+            if ((overlay_cmd & app::SharedState::kOverlayValidBit) == 0) {
+                avatar.clear_overlay();
+            } else {
+                const auto expr = static_cast<avatar::Expression>((overlay_cmd >> 15) & 0xFF);
+                const auto hold = overlay_cmd & 0x7FFFu;
+                avatar.set_overlay(expr, hold);
+            }
+        }
+        const std::uint32_t activity_seq = args.state->face.activity_seq.load(std::memory_order_relaxed);
+        if (activity_seq != last_activity_seq) {
+            last_activity_seq = activity_seq;
+            avatar.note_activity();
+        }
+        const auto resolved = avatar.resolve_expression(now_ms);
+        if (static_cast<std::int32_t>(resolved) != last_expression) {
+            clawd_face.set_expression(resolved);
+            last_expression = static_cast<std::int32_t>(resolved);
         }
         const float mouth_open = args.state->face.mouth_open.load(std::memory_order_relaxed);
         avatar.set_mouth_open(mouth_open);

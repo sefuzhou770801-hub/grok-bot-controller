@@ -35,6 +35,7 @@ public:
 
     void tick(std::uint32_t now_ms, RichCanvas& canvas) {
         animator_.tick(now_ms, context_);
+        expression_ctrl_.set_target(expression_ctrl_.resolve(now_ms));
         expression_ctrl_.apply(context_, now_ms);
         if (expression_ctrl_.blend() < 1.0f) {
             full_repaint_pending_ = true;
@@ -81,8 +82,31 @@ public:
     }
 
     void set_expression(Expression expression) {
-        expression_ctrl_.set_target(expression);
+        expression_ctrl_.set_base(expression);
         full_repaint_pending_ = true;
+    }
+
+    void set_voice_state(VoiceState voice) {
+        expression_ctrl_.set_voice_state(voice);
+        full_repaint_pending_ = true;
+    }
+
+    void set_overlay(Expression overlay, std::uint32_t hold_ms) {
+        expression_ctrl_.set_overlay(overlay, hold_ms);
+        full_repaint_pending_ = true;
+    }
+
+    void clear_overlay() {
+        expression_ctrl_.clear_overlay();
+        full_repaint_pending_ = true;
+    }
+
+    void note_activity() {
+        expression_ctrl_.note_activity();
+    }
+
+    Expression resolve_expression(std::uint32_t now_ms) {
+        return expression_ctrl_.resolve(now_ms);
     }
 
     bool load_bytecode(std::span<const std::uint8_t> bytes) {
@@ -135,6 +159,26 @@ Avatar& Avatar::operator=(Avatar&&) noexcept = default;
 
 void Avatar::set_expression(Expression expression) noexcept {
     impl_->set_expression(expression);
+}
+
+void Avatar::set_voice_state(VoiceState voice) noexcept {
+    impl_->set_voice_state(voice);
+}
+
+void Avatar::set_overlay(Expression overlay, std::uint32_t hold_ms) noexcept {
+    impl_->set_overlay(overlay, hold_ms);
+}
+
+void Avatar::clear_overlay() noexcept {
+    impl_->clear_overlay();
+}
+
+void Avatar::note_activity() noexcept {
+    impl_->note_activity();
+}
+
+Expression Avatar::resolve_expression(std::uint32_t now_ms) noexcept {
+    return impl_->resolve_expression(now_ms);
 }
 
 void Avatar::set_mouth_open(float ratio) noexcept {

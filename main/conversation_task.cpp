@@ -71,8 +71,10 @@ constexpr std::uint32_t kJitterBufferMs = 300;
 // Mic / speaker I2S handoff settle time (matches the existing audio code).
 constexpr TickType_t kI2sSettle = pdMS_TO_TICKS(20);
 
-// Recover from a stuck "Thinking" (no audio, no tool follow-up) after this long.
-constexpr std::uint32_t kThinkingTimeoutMs = 15000;
+// Health-check cadence while Thinking: an alive session keeps the thinking
+// face indefinitely (the spec holds it until the result returns); only a
+// dead session recovers. This is a check interval, not a face deadline.
+constexpr std::uint32_t kThinkingTimeoutMs = 60000;
 
 // Recover from a stuck "Speaking" (assistant playback drained but the
 // generationComplete / interrupted / turnComplete event never arrived,
@@ -108,7 +110,8 @@ conv::ToolDefinition make_set_expression_tool()
         .description = "改变 Stack-chan 的脸部表情。需要表达情绪时使用。",
         .parameters_json = R"({"type":"object","properties":{"expression":{"type":"string",)"
                            R"("enum":["neutral","idle","happy","sad","angry","doubt","sleepy",)"
-                           R"("listening","thinking","excited","curious","confused","surprised","dizzy","affection"]}},)"
+                           R"("listening","thinking","excited","curious","confused",)"
+                           R"("surprised","dizzy","affection","bored"]}},)"
                            R"("required":["expression"]})",
     };
 }
@@ -560,6 +563,29 @@ private:
     {
         local_ = s;
         state_.conv.idle.store(s == Local::Listening, std::memory_order_relaxed);
+        using avatar::VoiceState;
+        VoiceState vs = VoiceState::Idle;
+        switch (s) {
+        case Local::Listening:
+            // Session-ready standby is NOT the listening face: mapping it to
+            // VoiceState::Listening would pin the face forever and make idle
+            // decay unreachable. The listening face comes from real listening
+            // moments instead — the wake-word overlay (asr_probe) and the
+            // SpeechStarted event below; standby stays Idle so decay can run.
+            vs = VoiceState::Idle;
+            break;
+        case Local::Thinking:
+            vs = VoiceState::Thinking;
+            break;
+        case Local::Speaking:
+            vs = VoiceState::Speaking;
+            break;
+        case Local::Init:
+        case Local::Yielded:
+            vs = VoiceState::Idle;
+            break;
+        }
+        state_.set_voice_state(vs);
         // Mask servo motion for the entire reply playback (Speaking). Deriving
         // it from the state — rather than the speaker's isPlaying() — keeps the
         // head still across the brief silences between streamed reply segments,
@@ -587,8 +613,18 @@ private:
             break;
         case Local::Thinking:
             if (now_ms() - thinking_since_ms_ > kThinkingTimeoutMs) {
-                ESP_LOGW(kTag, "thinking timed out, returning to listening");
-                enter_listening();
+                // The spec keeps the thinking face for the whole wait. A slow
+                // but alive request keeps waiting (with a periodic warning);
+                // only a dead session recovers here — transport errors also
+                // recover through their own event paths.
+                if (!state_.conv.active.load(std::memory_order_relaxed)) {
+                    ESP_LOGW(kTag, "thinking with dead session → recover");
+                    recover_after_error(/*from_failure=*/true);
+                } else {
+                    ESP_LOGW(kTag, "thinking > %u ms, request still in flight — keep waiting",
+                             static_cast<unsigned>(kThinkingTimeoutMs));
+                    thinking_since_ms_ = now_ms();
+                }
             } else {
                 vTaskDelay(pdMS_TO_TICKS(10));
             }
@@ -882,6 +918,11 @@ private:
 
         case conv::ConversationEventType::SpeechStarted:
             ESP_LOGI(kTag, "user speech started");
+            state_.note_face_activity();
+            // The user is actually talking to us — this is the listening
+            // window. SpeechStopped flips Local to Thinking which overwrites
+            // it, and any later set_local returns the state to Idle.
+            state_.set_voice_state(avatar::VoiceState::Listening);
             break;
 
         case conv::ConversationEventType::SpeechStopped:
@@ -894,6 +935,7 @@ private:
 
         case conv::ConversationEventType::UserTranscript:
             ESP_LOGI(kTag, "user: %s", ev.text.c_str());
+            state_.note_face_activity();
             if (!ev.text.empty()) {
                 state_.set_balloon_text(ev.text, /*hold_ms=*/2500);
             }
@@ -948,6 +990,7 @@ private:
             if (const auto expr = parse_emotion(ev.text.c_str())) {
                 ESP_LOGI(kTag, "emotion: %s", ev.text.c_str());
                 state_.face.expression.store(static_cast<int>(*expr), std::memory_order_relaxed);
+                state_.note_face_activity();
             }
             break;
 
@@ -1040,6 +1083,7 @@ private:
         std::string result;
         if (expr) {
             state_.face.expression.store(static_cast<int>(*expr), std::memory_order_relaxed);
+            state_.note_face_activity();
             result = R"({"ok":true})";
         } else {
             result = R"({"ok":false,"error":"unknown expression"})";

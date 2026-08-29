@@ -467,6 +467,7 @@ void register_mcp_sinks()
         const auto parsed = expression_from_name(name);
         const int v = static_cast<int>(parsed.value_or(E::Neutral));
         g_state->face.expression.store(v, std::memory_order_relaxed);
+        g_state->note_face_activity();
     });
 
     stackchan::wifi_config::set_mcp_balloon_sink([](std::string_view text, std::uint32_t hold_ms) {

@@ -23,6 +23,7 @@
 
 #include "shared_state.hpp"
 #include "avatar/expression.hpp"
+#include "avatar/expression_controller.hpp"
 #include "settings_sinks.hpp"
 
 #include "esp_afe_config.h"
@@ -143,8 +144,10 @@ void detect_task(void*) {
             stackchan::app::settings_sinks::say_kana("ぴこん");  // 机器音效应答（非语言拟声）
             ESP_LOGI(kTag, "★★ WAKE WORD DETECTED (idx=%d) ★★", r->wake_word_index);
             if (g_state != nullptr) {
-                g_state->face.expression.store(static_cast<int>(stackchan::avatar::Expression::Happy),
-                                               std::memory_order_relaxed);
+                // 唤醒后聆听神态出现（Issue #4 直观验收项）。
+                g_state->request_face_overlay(
+                    stackchan::avatar::Expression::Listening,
+                    stackchan::avatar::ExpressionController::kDefaultOverlayHoldMs);
                 g_state->set_balloon_text("在！", 1800);
             }
         }

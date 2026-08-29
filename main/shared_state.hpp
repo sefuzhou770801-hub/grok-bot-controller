@@ -76,7 +76,21 @@ public:
     // --- Avatar face (render_task reads every frame) -----------------------
     struct Face {
         std::atomic<float> mouth_open{0.0f};
+        // Conversation mood (LLM / MCP / button). Not the live face: the
+        // expression controller resolves overlay + voice + this + idle decay.
         std::atomic<int> expression{static_cast<int>(stackchan::avatar::Expression::Neutral)};
+        // Interactive overlay, published as ONE atomic word so concurrent
+        // writers (touch loop, wake word, MCP) can never interleave halves
+        // of two commands. 32-bit so it stays lock-free on the 32-bit
+        // ESP32-S3 target (this file requires lock-free leaves). Layout
+        // (see pack_overlay_command):
+        //   [31]    valid — the atomic stand-in for std::optional
+        //   [30:23] sequence — retriggers the same face
+        //   [22:15] expression (u8)
+        //   [14:0]  hold_ms, capped at kOverlayHoldCapMs (0 = sticky)
+        std::atomic<std::uint32_t> overlay_command{0};
+        // Bumped on touch / wake / message so idle decay snaps back.
+        std::atomic<std::uint32_t> activity_seq{0};
         // External gaze target (Avatar::set_gaze inputs). Updated by the
         // touch-driven gaze-follow path in demo_loop; read by render_task
         // every frame and forwarded to avatar.set_gaze. Animator-driven
@@ -141,8 +155,62 @@ public:
         std::atomic<std::uint32_t> reconnects{0};
         // Cooperative I2S handoff flag — see audio_stream_active below.
         std::atomic<bool> yielded_i2s{false};
+        // Fine-grained voice / wait state (idle/listening/thinking/speaking).
+        // Distinct from `status` (Talking lumps thinking + speaking). Written
+        // by the conversation task; the expression controller maps it.
+        std::atomic<std::uint8_t> voice_state{
+            static_cast<std::uint8_t>(stackchan::avatar::VoiceState::Idle)};
     };
     Conversation conv;
+
+    void set_voice_state(stackchan::avatar::VoiceState s) noexcept {
+        conv.voice_state.store(static_cast<std::uint8_t>(s), std::memory_order_relaxed);
+        face.activity_seq.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    static constexpr std::uint32_t kOverlayValidBit = 1u << 31;
+    // 15-bit hold field: overlays are short by design (seconds); 0 = sticky.
+    static constexpr std::uint32_t kOverlayHoldCapMs = 0x7FFFu;
+
+    static constexpr std::uint32_t pack_overlay_command(bool valid, std::uint8_t seq, std::uint8_t expression,
+                                                        std::uint32_t hold_ms) noexcept {
+        const std::uint32_t hold = hold_ms > kOverlayHoldCapMs ? kOverlayHoldCapMs : hold_ms;
+        return (valid ? kOverlayValidBit : 0u) | (static_cast<std::uint32_t>(seq) << 23) |
+               (static_cast<std::uint32_t>(expression) << 15) | hold;
+    }
+
+    // `hold_ms == 0` keeps the overlay until a clear. The whole command
+    // lands in one store, so a reader can never mix two writers. Returns the
+    // published word — pass it to clear_face_overlay_if so a stale gesture
+    // can only clear its OWN overlay, never a newer one from another source.
+    std::uint64_t request_face_overlay(stackchan::avatar::Expression e, std::uint32_t hold_ms) noexcept {
+        const auto seq = static_cast<std::uint8_t>(overlay_seq_counter_.fetch_add(1, std::memory_order_relaxed) + 1);
+        const std::uint64_t cmd = pack_overlay_command(true, seq, static_cast<std::uint8_t>(e), hold_ms);
+        face.overlay_command.store(cmd, std::memory_order_release);
+        face.activity_seq.fetch_add(1, std::memory_order_relaxed);
+        return cmd;
+    }
+
+    void clear_face_overlay() noexcept {
+        const auto seq = static_cast<std::uint8_t>(overlay_seq_counter_.fetch_add(1, std::memory_order_relaxed) + 1);
+        face.overlay_command.store(pack_overlay_command(false, seq, 0, 0), std::memory_order_release);
+    }
+
+    // Conditional clear: only removes the overlay if it is still exactly the
+    // command this caller published. A newer overlay from another source
+    // survives a stale restore/end-of-gesture path.
+    bool clear_face_overlay_if(std::uint32_t expected) noexcept {
+        if ((expected & kOverlayValidBit) == 0) {
+            return false;
+        }
+        const auto seq = static_cast<std::uint8_t>(overlay_seq_counter_.fetch_add(1, std::memory_order_relaxed) + 1);
+        return face.overlay_command.compare_exchange_strong(expected, pack_overlay_command(false, seq, 0, 0),
+                                                            std::memory_order_release, std::memory_order_relaxed);
+    }
+
+    void note_face_activity() noexcept {
+        face.activity_seq.fetch_add(1, std::memory_order_relaxed);
+    }
 
     // --- Battery (demo_loop samples the INA226; UI + services read) --------
     struct Battery {
@@ -304,12 +372,17 @@ public:
                           std::uint32_t hold_ms = 0,
                           BalloonCompletionCallback on_complete = {})
     {
-        std::lock_guard lock{balloon_mutex_};
-        balloon_text_.assign(text);
-        balloon_hold_ms_ = hold_ms;
-        balloon_callback_ = std::move(on_complete);
-        balloon_version_.fetch_add(1, std::memory_order_release);
-        balloon_visible_.store(true, std::memory_order_release);
+        {
+            std::lock_guard lock{balloon_mutex_};
+            balloon_text_.assign(text);
+            balloon_hold_ms_ = hold_ms;
+            balloon_callback_ = std::move(on_complete);
+            balloon_version_.fetch_add(1, std::memory_order_release);
+            balloon_visible_.store(true, std::memory_order_release);
+        }
+        // A message is attention: snap a bored / sleepy face back awake
+        // (Issue #4 — touch / wake / message all reset idle decay).
+        face.activity_seq.fetch_add(1, std::memory_order_relaxed);
     }
 
     // Force-clear the balloon. Completion callback is dropped without firing.
@@ -426,6 +499,7 @@ public:
 
 private:
     mutable std::mutex balloon_mutex_;
+    std::atomic<std::uint8_t> overlay_seq_counter_{0}; // 多任务发布方并发递增；打包进 overlay_command
     std::string balloon_text_;
     std::uint32_t balloon_hold_ms_{0};
     BalloonCompletionCallback balloon_callback_{};

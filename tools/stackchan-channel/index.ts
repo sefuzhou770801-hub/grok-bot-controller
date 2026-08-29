@@ -42,6 +42,7 @@ if (!STACKCHAN_URL || !STACKCHAN_TOKEN) {
 const EXPRESSION_NAMES = [
   'neutral', 'idle', 'happy', 'sad', 'angry', 'doubt', 'sleepy',
   'listening', 'thinking', 'excited', 'curious', 'confused', 'surprised', 'dizzy',
+  'affection', 'bored',
 ] as const;
 type ExpressionName = (typeof EXPRESSION_NAMES)[number];
 

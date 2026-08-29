@@ -299,6 +299,19 @@ fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
       p_rdy = 0.965926
       p_ro = 0.32
       p_ry = 1
+    elif e == BORED then
+      p_lhs = 10.5
+      p_lr = 8.8
+      p_ldx = 0.342020
+      p_ldy = 0.939693
+      p_lo = 0.82
+      p_ly = 1
+      p_rhs = 10.0
+      p_rr = 7.0
+      p_rdx = 0.342020
+      p_rdy = 0.939693
+      p_ro = 0.82
+      p_ry = 1
     end
 
     lhs = lhs + p_lhs * w
@@ -360,6 +373,53 @@ fn grok_eyes(scale, color, ox, oy, left_lid, right_lid, sx, sy)
     ldy = sdy
     rdx = -sdx
     rdy = sdy
+  end
+
+  -- Persistent listening: slow tilt rock so the pose is not a freeze-frame.
+  if expr == LISTENING then
+    let rock_t = (now_ms / 90) % 40
+    let rock = rock_t
+    if rock_t > 20 then
+      rock = 40 - rock_t
+    end
+    rock = (rock - 10) / 10 * 0.12
+    ldx = ldx + rock
+    rdx = rdx - rock
+  end
+
+  -- Persistent thinking: gaze drifts up and a slow blink.
+  if expr == THINKING then
+    let drift_t = (now_ms / 80) % 60
+    let drift = drift_t
+    if drift_t > 30 then
+      drift = 60 - drift_t
+    end
+    ly = ly - drift / 30 * 2
+    ry = ry - drift / 30 * 2
+    let bt = (now_ms / 40) % 80
+    let lid = 1
+    if bt > 70 then
+      lid = (80 - bt) / 10
+      if lid < 0.35 then
+        lid = 0.35
+      end
+    elif bt > 62 then
+      lid = 0.35 + (70 - bt) / 8 * 0.65
+    end
+    lo = lo * lid
+    ro = ro * lid
+  end
+
+  -- 与上方眼睛段的归一化同形：DSL 函数只有单返回值，双分量抽不成共享函数，保留两段。
+  let nlen = sqrt(ldx * ldx + ldy * ldy)
+  if nlen > 0.0001 then
+    ldx = ldx / nlen
+    ldy = ldy / nlen
+  end
+  let nrlen = sqrt(rdx * rdx + rdy * rdy)
+  if nrlen > 0.0001 then
+    rdx = rdx / nrlen
+    rdy = rdy / nrlen
   end
 
   capsule_eye(left_x + lx * canvas_scale * sx, left_y + ly * canvas_scale * sy,
@@ -490,6 +550,17 @@ fn draw()
     left_lid = 1
   end
 
+  -- Sleepy: extra slow lid droop on top of the static pose.
+  if expr == SLEEPY then
+    let d = (now_ms / 120) % 50
+    if d > 25 then
+      d = 50 - d
+    end
+    let extra = 0.55 + d / 25 * 0.25
+    left_lid = left_lid * extra
+    right_lid = right_lid * extra
+  end
+
   -- Eye orbit: 8-segment circle, amplitude fades in and out.
   let ox = 0
   let oy = 0
@@ -548,6 +619,20 @@ fn draw()
     end
     ox = (ax + (bx - ax) * f) * amp
     oy = (ay + (by - ay) * f) * amp
+  end
+
+  -- Bored: continuous slow look-around, independent of the burst orbit.
+  if expr == BORED then
+    let hx = (now_ms / 80) % 80
+    if hx > 40 then
+      hx = 80 - hx
+    end
+    let vy = (now_ms / 110) % 60
+    if vy > 30 then
+      vy = 60 - vy
+    end
+    ox = (hx - 20) / 20 * sz(14)
+    oy = (vy - 15) / 15 * sz(8)
   end
 
   -- Body morph: egg only. The old triangle clock is gone so reactions
@@ -617,6 +702,8 @@ fn draw()
       s = 1.02
     elif e == AFFECTION then
       s = 1.01
+    elif e == BORED then
+      s = 0.985
     end
     body_scale_mix = body_scale_mix + s * w
     mix_i = mix_i + 1

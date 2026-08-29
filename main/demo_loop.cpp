@@ -8,7 +8,6 @@
 #include <atomic>
 #include <cmath>
 #include <cstdint>
-#include <optional>
 
 #include <M5Unified.h>
 #include <esp_log.h>
@@ -22,6 +21,7 @@
 #include "config_service/config_service.hpp"
 
 #include "avatar/expression.hpp"
+#include "avatar/expression_controller.hpp"
 #include "battery.hpp"
 #include "clawd_motion/face_input.hpp"
 #include "face_intent_map.hpp"
@@ -126,7 +126,8 @@ constexpr const char* kTag = "stackchan";
     };
     bool head_pet_touch_active = false;
     bool head_pet_restore_pending = false;
-    int head_pet_prev_expr = static_cast<int>(avatar::Expression::Neutral);
+    std::uint32_t head_pet_overlay_cmd = 0; // 本任务最近发布的覆盖命令（条件清除凭据）
+    std::uint32_t gesture_overlay_cmd = 0;  // 屏幕手势最近发布的覆盖命令（条件清除凭据）
     float head_pet_prev_yaw = 0.0f;
     float head_pet_prev_pitch = 0.0f;
     std::uint32_t head_pet_restore_at_ms = 0;
@@ -153,7 +154,7 @@ constexpr const char* kTag = "stackchan";
     clawd_motion::FaceInput face_input;
     face_input.set_screen_center(static_cast<float>(M5.Display.width()) * 0.5f,
                                  static_cast<float>(M5.Display.height()) * 0.5f);
-    std::optional<std::uint8_t> face_reaction_restore;
+
     bool overlay_owns_gesture = false;
 
     for (;;) {
@@ -208,6 +209,7 @@ constexpr const char* kTag = "stackchan";
             const int cur = g_state->face.expression.load(std::memory_order_relaxed);
             g_state->face.expression.store(
                 (cur + 1) % static_cast<int>(avatar::kExpressionCount), std::memory_order_relaxed);
+            g_state->note_face_activity();
             if (g_board != nullptr) (void)g_board->vibrate(30);
         }
         // BtnA on StopWatch (= Yellow / G2) — toggle the device_ui open/close.
@@ -255,8 +257,11 @@ constexpr const char* kTag = "stackchan";
         app::screens::poll_inputs();
         {
             const auto td = M5.Touch.getDetail();
-            const bool conv_speaking = g_state->conv.active.load(std::memory_order_relaxed) &&
-                                       !g_state->conv.idle.load(std::memory_order_relaxed);
+            // 只有真正播报中才禁表情手势并武装 barge-in；Thinking 属于等待，
+            // 触摸交互照常（瞬时覆盖在仲裁里本来就压过思考脸）。
+            const bool conv_speaking =
+                static_cast<stackchan::avatar::VoiceState>(g_state->conv.voice_state.load(
+                    std::memory_order_relaxed)) == stackchan::avatar::VoiceState::Speaking;
             const bool barge_in_armed = g_state->barge_in_enabled.load(std::memory_order_relaxed) && conv_speaking;
             // Overlay flicks still switch tabs while the UI is shown.
             // FaceInput only sees leftover motion after that.
@@ -317,13 +322,15 @@ constexpr const char* kTag = "stackchan";
 
             using clawd_motion::Intent;
             const Intent intent = face.intent;
+            if (td.isPressed() || td.wasPressed()) {
+                g_state->note_face_activity();
+            }
             if (intent == Intent::StrokeRestore || intent == Intent::DizzyEnd) {
-                if (face_reaction_restore) {
-                    g_state->face.expression.store(*face_reaction_restore, std::memory_order_relaxed);
-                    face_reaction_restore.reset();
+                // 只清屏幕手势自己发布的覆盖；其他来源的新覆盖不受影响。
+                if (g_state->clear_face_overlay_if(gesture_overlay_cmd)) {
+                    gesture_overlay_cmd = 0;
                 }
             } else if (intent == Intent::FlickLeft || intent == Intent::FlickRight) {
-                face_reaction_restore.reset();
                 std::int16_t next = static_cast<std::int16_t>(
                     g_state->face.expression.load(std::memory_order_relaxed)) +
                     face.preview_step;
@@ -333,20 +340,17 @@ constexpr const char* kTag = "stackchan";
                     next += count;
                 }
                 g_state->face.expression.store(next, std::memory_order_relaxed);
+                g_state->note_face_activity();
                 if (g_board != nullptr) {
                     (void)g_board->vibrate(30);
                 }
             } else if (intent != Intent::None) {
-                if (intent == Intent::Stroke || intent == Intent::DizzyStart) {
-                    if (!face_reaction_restore) {
-                        face_reaction_restore = static_cast<std::uint8_t>(
-                            g_state->face.expression.load(std::memory_order_relaxed));
-                    }
-                } else {
-                    face_reaction_restore.reset();
-                }
                 const auto next = expression_for(intent);
-                g_state->face.expression.store(static_cast<std::uint8_t>(next), std::memory_order_relaxed);
+                const std::uint32_t hold_ms =
+                    (intent == Intent::Stroke || intent == Intent::DizzyStart)
+                        ? 0
+                        : avatar::ExpressionController::kDefaultOverlayHoldMs;
+                gesture_overlay_cmd = g_state->request_face_overlay(next, hold_ms);
                 if (g_board != nullptr) {
                     const std::uint16_t ms = intent == Intent::DizzyStart ? 80 : 30;
                     (void)g_board->vibrate(ms);
@@ -464,18 +468,20 @@ constexpr const char* kTag = "stackchan";
             }
 
             const bool firmly_touched = reading.firmly_touched();
+            if (reading.any_touched()) {
+                // 轻触也算理它：立即唤回闲置衰减（规格：任何触摸立即唤回）。
+                g_state->note_face_activity();
+            }
             if (firmly_touched && !head_pet_touch_active && !external_servo_control) {
                 if (!head_pet_restore_pending) {
                     head_pet_prev_yaw = g_state->servo.target_yaw_deg.load(std::memory_order_relaxed);
                     head_pet_prev_pitch = g_state->servo.target_pitch_deg.load(std::memory_order_relaxed);
-                    head_pet_prev_expr = g_state->face.expression.load(std::memory_order_relaxed);
                 }
                 head_pet_touch_active = true;
                 head_pet_restore_pending = false;
                 speech.stop();
 
-                g_state->face.expression.store(static_cast<int>(avatar::Expression::Happy),
-                                               std::memory_order_relaxed);
+                head_pet_overlay_cmd = g_state->request_face_overlay(avatar::Expression::Happy, 0);
                 balloon_in_flight.store(true, std::memory_order_release);
                 g_state->set_balloon_text("摸摸♡", /*hold_ms=*/2200, [] {
                     balloon_in_flight.store(false, std::memory_order_release);
@@ -535,10 +541,9 @@ constexpr const char* kTag = "stackchan";
                 stackchan::wifi_config::mcp_events::publish_touch_stroke(direction);
                 speech.stop();
                 const float prev_yaw = g_state->servo.target_yaw_deg.load(std::memory_order_relaxed);
-                const int prev_expr = g_state->face.expression.load(std::memory_order_relaxed);
 
-                g_state->face.expression.store(static_cast<int>(avatar::Expression::Happy),
-                                          std::memory_order_relaxed);
+                g_state->request_face_overlay(avatar::Expression::Happy,
+                                              avatar::ExpressionController::kDefaultOverlayHoldMs);
                 balloon_in_flight.store(true, std::memory_order_release);
                 g_state->set_balloon_text("摸摸♡", /*hold_ms=*/2200, [] {
                     balloon_in_flight.store(false, std::memory_order_release);
@@ -561,7 +566,6 @@ constexpr const char* kTag = "stackchan";
                     vTaskDelay(pdMS_TO_TICKS(kHalfPeriodMs));
                     g_state->servo.speed_override.store(0, std::memory_order_relaxed);
                 }
-                g_state->face.expression.store(prev_expr, std::memory_order_relaxed);
 
                 stroke_hit_ms = {0, 0, 0};
                 stroke_active_ms = 0;
@@ -577,7 +581,9 @@ constexpr const char* kTag = "stackchan";
 
         if (head_pet_restore_pending && now_ms >= head_pet_restore_at_ms) {
             head_pet_restore_pending = false;
-            g_state->face.expression.store(head_pet_prev_expr, std::memory_order_relaxed);
+            if (g_state->clear_face_overlay_if(head_pet_overlay_cmd)) {
+                head_pet_overlay_cmd = 0;
+            }
             g_state->servo.speed_override.store(200, std::memory_order_relaxed);
             g_state->servo.target_yaw_deg.store(head_pet_prev_yaw, std::memory_order_relaxed);
             g_state->servo.target_pitch_deg.store(head_pet_prev_pitch, std::memory_order_relaxed);
