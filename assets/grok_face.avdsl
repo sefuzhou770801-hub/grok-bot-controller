@@ -264,12 +264,19 @@ fn draw()
     end
   end
 
-  -- Petting = aora 14 害羞: blush under the shy eyes (positions follow the
-  -- ring-24 eye centres), plus a little heart floating up beside the head.
+  -- Petting = aora 14 害羞: blush riding just below each eye. The eyes dart
+  -- around while shy (look-away sweep + ring pool swaps), so the blush
+  -- centres are sampled live from the ring coordinates (4-point centroid)
+  -- instead of fixed positions. Plus a little heart floating up beside the
+  -- head.
   if expr == AFFECTION then
     if b > 0.6 then
-      fill_ellipse(tx(152), ty(172), sz(11), sz(6), 0xFD15)
-      fill_ellipse(tx(203), ty(175), sz(11), sz(6), 0xFD15)
+      let blx = (ring_l0x + ring_l12x + ring_l24x + ring_l36x) / 4
+      let bly = (ring_l0y + ring_l12y + ring_l24y + ring_l36y) / 4
+      let brx = (ring_r0x + ring_r12x + ring_r24x + ring_r36x) / 4
+      let bry = (ring_r0y + ring_r12y + ring_r24y + ring_r36y) / 4
+      fill_ellipse(blx, bly + sz(24), sz(11), sz(6), 0xFD15)
+      fill_ellipse(brx, bry + sz(24), sz(11), sz(6), 0xFD15)
       let hc = (now_ms / 60) % 40
       let hyy = ty(52) - hc / 40 * sz(16)
       draw_heart(tx(243), hyy, sz(6 + 2 * (hc / 40)), body)
