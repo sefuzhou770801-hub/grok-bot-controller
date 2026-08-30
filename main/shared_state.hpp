@@ -296,13 +296,6 @@ public:
         // mouth_sync_enabled is true. Seeded from cfg.lip_sync_mode at
         // boot; live-writable via BLE/HTTP (no reboot needed).
         std::atomic<std::uint8_t> lip_sync_mode{0};
-        // 表情联动（2026-08-30 老板需求）：开启时灯条颜色与节奏跟随当前
-        // 表情（render task 写回的 resolved_expression），覆盖 mode/color；
-        // 嘴型同步的亮度/电平表继续叠加。默认开。
-        std::atomic<bool> expr_sync_enabled{true};
-        // render task 每帧写回的最终表情（avatar 仲裁结果，Expression u8），
-        // led_task 消费。
-        std::atomic<std::uint8_t> resolved_expression{0};
     };
     Led led;
 

@@ -44,14 +44,6 @@ public:
         if (kind_ == BoardKind::StopWatch) {
             return;
         }
-        // 状态灯路由（2026-08-30 老板确认灯在机身顶部）：带 PY32 的底座
-        // 走 PY32 NeoPixel 环（12 颗，In_I2C 推帧，驱动已按
-        // docs/py32_ioexpander.md §6 的 RGB565 格式修正）；未装猫耳配件的
-        // 设备（本机）GPIO9 上没有灯，猫耳只作无 PY32 板的回落。
-        if (expander_) {
-            led_ = std::make_unique<Py32LedStrip>(*expander_, 12);
-            return;
-        }
         const int gpio = (kind_ == BoardKind::AtomNyan)
                              ? NekomimiLedStrip::kDataGpioAtomNyan
                              : NekomimiLedStrip::kDataGpioCoreS3;
