@@ -42,7 +42,14 @@ const MAP = [
 // 池覆盖：'14' 害羞去掉 ring 0（普通斜杠眼混在里面读不出害羞，
 // 2026-08-30 老板「摸摸应该是害羞状态」），只留羞怯 24 与闭合 13。
 const POOL_OVERRIDE = { '14': [24, 13] };
-const poolOf = (id) => POOL_OVERRIDE[id] ?? byId.get(id).pool;
+// 全局剔除环：ring 8 是八字短杠眼（两眼主轴 -55°/+74° 相对倾斜），
+// 2026-08-30 老板发真机截图定案「不好看，删了」——待机与思考池都含它。
+const BANNED_RINGS = [8];
+const poolOf = (id) => {
+  const base = POOL_OVERRIDE[id] ?? byId.get(id).pool;
+  const filtered = base.filter((r) => !BANNED_RINGS.includes(r));
+  return filtered.length > 0 ? filtered : base.slice(0, 1);
+};
 
 // 缩放：aora 头心 HEAD_C，把所有用到的环装进我们的球（r=100，留边）。
 const HEAD = RINGS.HEAD_C;
