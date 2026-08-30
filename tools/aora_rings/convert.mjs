@@ -101,16 +101,11 @@ function uprightCopy(pair, forceMidY) {
 }
 
 // 副本统一用第一环的高度：轮换只变形状（粗细长短），眼位不上下跳。
-const neutralPoolSrc = byId.get('02').pool;
+// 2026-08-30 晚：摆正副本停用，待机回用 aora 原版环。老板以 aora 展示站
+// 为基准（「眼睛看向的角度不一致」），原版环的倾斜与位置本身承载视线方向。
+// uprightCopy 保留备用：若倒八字观感复发，改用「整体拉平」变体再议。
 const uprightRows = [];
 const uprightIndexBySrc = new Map();
-let neutralMidY;
-for (const ri of neutralPoolSrc) {
-  const u = uprightCopy(RINGS.EXPRESSIONS[ri], neutralMidY);
-  neutralMidY = neutralMidY ?? u.midY;
-  uprightIndexBySrc.set(ri, usedRings.length + uprightRows.length);
-  uprightRows.push({ src: ri, pair: u.pair });
-}
 // C++ f32 字面量：必须带小数点（77f 非法，77.0f 合法）。
 const f = (v) => {
   let s = v.toFixed(2).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
@@ -137,7 +132,7 @@ const TARGET = { eyes: 0, left: 1, right: 2 };
 const cfgRows = MAP.map(([name, id]) => {
   const e = byId.get(id);
   const srcPool = poolOf(id);
-  const pool = srcPool.map((r) => (id === '02' ? uprightIndexBySrc.get(r) : ringIndex.get(r)));
+  const pool = srcPool.map((r) => ringIndex.get(r));
   while (pool.length < 6) pool.push(pool[0]);
   const poolMs = e.poolMs ? (e.poolMs[0] + e.poolMs[1]) / 2 : 6000;
   const openness = e.openness ?? 1;
