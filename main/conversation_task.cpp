@@ -72,10 +72,16 @@ constexpr std::uint32_t kJitterBufferMs = 300;
 // Mic / speaker I2S handoff settle time (matches the existing audio code).
 constexpr TickType_t kI2sSettle = pdMS_TO_TICKS(20);
 
-// Health-check cadence while Thinking: an alive session keeps the thinking
-// face indefinitely (the spec holds it until the result returns); only a
-// dead session recovers. This is a check interval, not a face deadline.
+// Health-check cadence while Thinking: an alive session keeps waiting for
+// the reply; only a dead session recovers. This is a check interval, not a
+// face deadline.
 constexpr std::uint32_t kThinkingTimeoutMs = 60000;
+
+// 思考脸的视觉期限（2026-08-30 老板：没有工作时也显示思考——环境音被
+// 云端 VAD 误判成说话，进 Thinking 后回复永不到来，脸就一直挂着）。真实
+// 回复几乎都在 12 秒内开始；超过就把脸放回待命，状态机继续等结果（回复
+// 到达仍正常进 Speaking）。
+constexpr std::uint32_t kThinkingFaceMs = 12000;
 
 // Recover from a stuck "Speaking" (assistant playback drained but the
 // generationComplete / interrupted / turnComplete event never arrived,
@@ -613,6 +619,12 @@ private:
             service_mic();
             break;
         case Local::Thinking:
+            if (!thinking_face_released_ && now_ms() - thinking_since_ms_ > kThinkingFaceMs) {
+                thinking_face_released_ = true;
+                state_.set_voice_state(avatar::VoiceState::Idle);
+                ESP_LOGI(kTag, "thinking > %u ms with no reply — face back to idle, still waiting",
+                         static_cast<unsigned>(kThinkingFaceMs));
+            }
             if (now_ms() - thinking_since_ms_ > kThinkingTimeoutMs) {
                 // The spec keeps the thinking face for the whole wait. A slow
                 // but alive request keeps waiting (with a periodic warning);
@@ -931,6 +943,7 @@ private:
             if (local_ == Local::Listening) {
                 set_local(Local::Thinking);
                 thinking_since_ms_ = now_ms();
+                thinking_face_released_ = false;
             }
             break;
 
@@ -1008,6 +1021,7 @@ private:
             if (tool_pending_) {
                 tool_pending_ = false;
                 thinking_since_ms_ = now_ms();
+                thinking_face_released_ = false;
             } else if (local_ == Local::Thinking && assistant_pcm_.empty()) {
                 // Text-only or empty turn: nothing will switch us to Speaking.
                 enter_listening();
@@ -1249,6 +1263,8 @@ private:
 
     Local local_{Local::Init};
     std::uint32_t thinking_since_ms_{0};
+    // 思考脸已提前放回待命（kThinkingFaceMs 视觉期限），进 Thinking 时复位。
+    bool thinking_face_released_{false};
     bool tool_pending_{false};
 
     std::array<std::vector<std::int16_t>, 2> mic_buf_{};
