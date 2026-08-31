@@ -13,6 +13,8 @@ BLE / Wi-Fi / SoftAP の 3 経路設定、デバイス側 OTA をサポートし
 > 开心弹跳、说话压扁、害羞飘心与腮红等 DSL 动画。
 > 眼环数据按上游条款仅限**非商业使用**，详见
 > [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)；其余自有源码仍为 BSL-1.0。
+> 让设备接上 Grok Bot 对话的联动层（HTTP 代理、ask 客户端、演示脚本）见
+> [tools/gbot-bridge/](tools/gbot-bridge/README.md)；gbot CLI 为外部依赖。
 
 ## Web Flasher / 設定ページ
 
