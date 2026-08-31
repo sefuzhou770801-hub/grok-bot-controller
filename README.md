@@ -4,7 +4,7 @@
 
 驱动 Grok Bot 桌面机器人的固件。
 
-<!-- banner 头图占位，由维护者提交 docs/images/banner.png 后替换 -->
+![Groki Bot 像素风头图：CRT 复古电脑造型的桌面机器人，屏幕上是总管的白圆脸](docs/images/banner.png)
 <!-- demo-video
      演示视频后补。发布后把嵌入代码（iframe 或 video）放在本注释块下方。
 -->
