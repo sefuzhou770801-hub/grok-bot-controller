@@ -1,6 +1,6 @@
 [English](README.en.md)
 
-# grok-bot-controller
+# Groki Bot
 
 驱动 Grok Bot 桌面机器人的固件。M5Stack の CoreS3 / AtomS3R / AtomS3 / StopWatch (C152) で動く
 Stack-chan ファームウェア。ESP-IDF 5.5 / C++20。AI 音声対話 (OpenAI / Gemini / XiaoZhi)、
