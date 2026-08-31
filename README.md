@@ -1,10 +1,12 @@
-[English](README.en.md)
+中文 · [English](README.en.md) · [日本語](README.ja.md)
 
 # Groki Bot
 
-驱动 Grok Bot 桌面机器人的固件。M5Stack の CoreS3 / AtomS3R / AtomS3 / StopWatch (C152) で動く
-Stack-chan ファームウェア。ESP-IDF 5.5 / C++20。AI 音声対話 (OpenAI / Gemini / XiaoZhi)、
-BLE / Wi-Fi / SoftAP の 3 経路設定、デバイス側 OTA をサポートします。
+驱动 Grok Bot 桌面机器人的固件。
+
+<!-- demo-video
+     演示视频后补。发布后把嵌入代码（iframe 或 video）放在本注释块下方。
+-->
 
 > **本仓库说明**：本仓库基于 [ciniml/stackchan-idf](https://github.com/ciniml/stackchan-idf)
 > (BSL-1.0) 的修改版，主要改动是表情体系换代：眼睛改为
@@ -16,180 +18,117 @@ BLE / Wi-Fi / SoftAP の 3 経路設定、デバイス側 OTA をサポートし
 > 让设备接上 Grok Bot 对话的联动层（HTTP 代理、ask 客户端、演示脚本）见
 > [tools/gbot-bridge/](tools/gbot-bridge/README.md)；gbot CLI 为外部依赖。
 
-## Web Flasher / 設定ページ
+## 特性
 
-GitHub Releases に置かれたファームウェアをブラウザから書き込めます (Chrome / Edge):
+- **表情引擎**：aora 眼环轮廓（每眼 48 点），15 种表情，眨眼 / 环游 / 四权重混合；身体层保留呼吸、开心弹跳、说话压扁、害羞飘心与腮红。
+- **AI 语音对话**：WebSocket 连接 OpenAI Realtime / Google Gemini Live / XiaoZhi。麦克风上行，应答音频驱动口型；半双工 CoreS3 在发话时关闭麦克风，应答中可用屏幕点击或头顶触摸打断（barge-in）。
+- **舵机头部运动**：SCS0009 偏航 + 俯仰，台形速度曲线。
+- **头顶触摸互动**：Si12T 三区电容触摸（前 / 中 / 后）；抚摸切到害羞脸（Affection）。
+- **吹泡字幕**：屏幕底部白底圆角面板显示应答文本，长文跑马灯滚动。
+- **三路配网**：BLE（NimBLE GATT）、Wi-Fi STA（mDNS HTTP）、SoftAP + captive portal（iOS 友好）。
+- **OTA**：双分区写入，启动校验与回滚。路径包括 BLE 分块、Wi-Fi 本地上传、设备侧从 GitHub Pages 拉取对应板卡固件。
 
-- **書き込み**: <https://ciniml.github.io/stackchan-idf/>
-- **BLE 設定**: <https://ciniml.github.io/stackchan-idf/settings.html> (Web Bluetooth、デスクトップ Chrome / Edge のみ)
-- **Wi-Fi 設定**: デバイスを Wi-Fi に繋いだ後 `http://stackchan-XXXXXX.local/` (mDNS)
-- **iOS / SoftAP 設定**: 本体ボタン (boards により方法が異なる、後述) で AP モードに入り、
-  LCD に表示される Wi-Fi QR を iPhone Camera で読む → captive portal で設定ページが自動表示
+## 硬件规格
 
-タグ `vX.Y.Z` を push すると CI が 4 ボード分ビルドして Release を作り、
-Pages サイトに反映されます。
+### 标准机：CoreS3 + Stack-chan 底座
 
-## 対応ボード
+| 项目 | 规格 |
+|---|---|
+| SoC | ESP32-S3R8 |
+| PSRAM | 8 MB，封装内 Quad SPI，时钟 80 MHz |
+| Flash | 16 MB 外置 SPI（W25Q128 封装） |
+| 显示 | 320×240 IPS 触摸屏 |
+| 舵机 | SCS0009 ×2（偏航 / 俯仰） |
+| 舵机总线 | UART1，TX GPIO 6 / RX GPIO 7，1 Mbps，8N1 |
+| 舵机 ID / 零位 | 偏航 ID 1、零位 460；俯仰 ID 2、零位 620 |
+| 步进 | 1 step ≈ 0.3125°（`deg = (raw - zero) * 5 / 16`） |
+| 软限位默认 | 偏航 ±40°，俯仰 -10° 到 +25° |
+| 头顶触摸 | Si12T，I²C 0x68，前 / 中 / 后三区 |
+| 电池计 | INA226，I²C 0x41 |
+| IO 扩展 | PY32，I²C 0x6F；Pin 0 控制舵机 VM 电源（开启后等待 200 ms 再访问总线） |
+| PMIC | AXP2101，I²C 0x34（由 M5Unified 管理） |
+| LCD 触摸 | I²C 0x38（由 M5Unified 管理） |
 
-| ボード | 略号 | 表示 | 主な特徴 |
+Takao Base 插在同一 `cores3` 固件上：舵机走 Port A（TX GPIO 2 / RX GPIO 1，半双工、回声消除），无舵机电源控制、无 INA226。
+
+### 其他支持板卡
+
+| 板卡 | 构建代号 | 显示 | 要点 |
 |---|---|---|---|
-| CoreS3 + Stack-chan ベース | `cores3` | 320×240 IPS + touch | 標準。サーボ 2 軸、頭タッチ センサー、INA226 電池計 |
-| CoreS3 + Takao Base | `cores3` | 同上 | Port A 半二重サーボ、サーボ電源/電池計なし |
-| AtomS3R + Atomic ECHO BASE (アトムニャン) | `atoms3r` | 128×128 LCD | サーボなし、ES8311 音声、BtnA で UI / AP |
-| AtomS3 (PSRAM なし) + ECHO BASE | `atoms3` | 128×128 LCD | 軽量プロファイル、会話/RTP 非対応 |
-| M5 StopWatch (C152) | `stopwatch` | 466×466 円形 AMOLED + touch | サーボなし、touch で視線追従、ES8311 音声 |
+| CoreS3 + Stack-chan 底座 | `cores3` | 320×240 IPS + 触摸 | 默认。舵机两轴、头顶触摸、INA226 |
+| CoreS3 + Takao Base | `cores3` | 同上 | Port A 半双工舵机；无舵机电源 / 电池计 |
+| AtomS3R + Atomic ECHO BASE | `atoms3r` | 128×128 LCD | 无舵机。8 MB Octal PSRAM，8 MB Flash，ES8311，BtnA 切换 UI / AP |
+| AtomS3（无 PSRAM）+ ECHO BASE | `atoms3` | 128×128 LCD | 轻量配置。无对话 / 无 BLE 音频 / 无 RTP |
+| M5 StopWatch (C152) | `stopwatch` | 466×466 圆形 AMOLED + 触摸 | 无舵机。8 MB Octal PSRAM，16 MB Flash，触摸视线跟随，ES8311 |
 
-ビルドは `make build BOARD=<略号>` (デフォルト `cores3`)。
-ボードは起動時に検出され、`set_board_kind()` で UI / 機能のグレーアウトに反映されます。
+板卡在启动时检测，经 `set_board_kind()` 反映到 UI 与功能开关。构建：`make build BOARD=<代号>`（默认 `cores3`）。不同板卡的 PSRAM 模式在链接期锁定，固件不能混刷。
 
-## 機能
+## 技术规格
 
-- **AI 音声対話**: OpenAI Realtime / Google Gemini Live / XiaoZhi サーバーに WebSocket
-  接続。マイク入力 → 応答音声 → 口パク連動。半二重 CoreS3 では発話中マイクを止め、
-  応答中は LCD タップ / 頭タッチ (Si12T) で barge-in 可能。サーバー側 VAD で
-  ターン検出。OpenAI / Gemini ではツール (`set_expression` / `set_head_pose` /
-  `speak_katakoto`) で表情・首振り・カタコト声を制御、XiaoZhi は感情を表情にマップ。
-  応答テキストは吹き出しに進行表示。
-- **アバター描画**: M5GFX で 30 fps。呼吸 / saccade / blink、6 表情 (Neutral / Happy
-  / Sad / Angry / Doubt / Sleepy)。**Avatar DSL** (`.avdsl` ソース → `.avbc` バイトコード)
-  で顔のレイアウトとアニメーションを差し替え可能 (BLE / Wi-Fi 経由でライブ更新)。
-- **マイク連動口パク (lip sync)**: FFT + 帯域 log + spectral flux で開口度推定、
-  雑音床 EWMA AGC で環境ノイズに追従。
-- **サーボ**: SCS0009 yaw + pitch を UART1 (1 Mbps) で制御。台形速度
-  プロファイル `PathGenerator`、駆動時のみトルク有効化。ボード別レンジ
-  キャリブレーション (ServoLimits) を NVS 保存。
-- **スピーカー / オーディオ**: 起動音 (C5–E5–G5、設定で OFF 可)、jtts ランダム
-  babble、AAC 録音再生、BLE オーディオ ストリーム、Wi-Fi RTP (L16 / μ-law / AAC) 受信。
-  音量は **0..200%** をライブ制御 (BLE / Wi-Fi / 本体 UI)。
-- **NeoPixel**: nekomimi 用 LED ストリップ アニメーション (虹 / 単色 / リップシンク
-  レベルメーター モード)。
-- **LT タイマー**: 発表時間アシスト。残り N 秒で予告 → 時刻ぴったり → 超過繰返し
-  アナウンス (jtts)。
-- **オンデバイス UI**:
-  - CoreS3 / StopWatch (touch panel): 画面右上タップで 5 タブ UI (情報 / 設定 /
-    操作 / 範囲 / 会話 / LT)
-  - AtomS3R / AtomS3 (button only): BtnA 短押でステータス オーバーレイ、長押で
-    operation_mode サイクル
-- **吹き出し**: 24 px ゴシック フォントの白パネル、長文は marquee スクロール。
-- **BLE 設定サービス** (NimBLE GATT): `tools/settings.html` (Web Bluetooth) から
-  Wi-Fi 接続先・API キー・各種設定・OTA 更新。Bluetooth 4.2 以降の Just Works
-  ペアリング + アプリケーション層 X25519 + AES-256-GCM 暗号化、optional password 認証。
-  設定は NVS に保存、Apply で再起動して反映。
-- **Wi-Fi 設定サービス**: 接続後 HTTP サーバー (port 80) + `settings_wifi.html`、
-  mDNS (`stackchan-XXXXXX.local`)。SSID / プロバイダ / API キー / システム
-  プロンプト / 追加 HTTP ヘッダ / jtts / Avatar DSL / OTA 全て対応。
-- **SoftAP プロビジョニング (iOS フレンドリー)**: STA が未設定 / 接続失敗時に
-  本体トリガで AP モード起動 (`Stackchan-XXXXXX` + WPA2)。LCD に Wi-Fi QR 表示、
-  iPhone Camera スキャン → 接続 → **captive portal が自動で `settings_wifi.html` を開く**
-  (DNS hijack + HTTP 404 catch-all)。AP モード中は require_auth が bypass され、
-  設定が即触れる。
-- **OTA 更新**: デュアル OTA パーティション、起動検証 + ロールバック対応。
-  - **BLE 経由**: settings.html → 暗号化された chunk
-  - **Wi-Fi ローカル ファイル**: settings_wifi.html で `.bin` をアップロード
-  - **Wi-Fi デバイス側 fetch** (v0.7.4+): `POST /api/ota/release {tag}` で device
-    自身が GitHub Pages から自分のボード用バイナリをダウンロード → 適用 (STA 必要)
+| 项目 | 规格 |
+|---|---|
+| 框架 / 语言 | ESP-IDF 5.5（按 5.5.4 验证，5.4.2 也可编译）/ C++20 |
+| 目标芯片 | `esp32s3` |
+| 头像渲染 | M5GFX。有 PSRAM 时全屏缓冲；绘制预算 17 ms（约 60 fps），全屏覆盖层按 33 ms 周期让出 CPU |
+| 表情 | 15 种：Neutral、Happy、Sad、Angry、Doubt、Sleepy、Listening、Thinking、Excited、Curious、Confused、Surprised、Dizzy、Affection、Bored |
+| 眼环合成 | 每眼 48 点轮廓，按 `expression` / `expression_from` / 两层 hold 共四组权重逐点混合；环池轮换约 340 ms；眨眼、单眼 wink、开合度在混合后绕质心纵向压扁 |
+| Avatar DSL | `.avdsl` 源编译为 `.avbc` 字节码，经 BLE / Wi-Fi 热更换。出厂默认脸为 `assets/grok_face.avdsl` |
+| 口型同步 | 16 kHz 单声道，256 点 radix-2 FFT；语音带 log 能量 + spectral flux；EWMA 噪声地板跟随环境 |
+| 舵机运动 | 台形速度曲线 `PathGenerator`，仅在驱动时使能扭矩；限位写入 NVS |
+| 音量 | 0..200%，BLE / Wi-Fi / 机身 UI 实时调节 |
+| OTA | 双槽 + 启动回滚。CoreS3 / StopWatch 每槽 4 MiB（`partitions_16mb.csv`）；AtomS3R 每槽 0x350000（`partitions_8mb.csv`）；AtomS3 每槽 3 MiB（`partitions.csv`） |
+| BLE | NimBLE，Just Works 配对；应用层 X25519 + AES-256-GCM；可选口令 |
+| Wi-Fi 设置 | 连接后 HTTP 80 + `settings_wifi.html`，mDNS `stackchan-XXXXXX.local` |
+| SoftAP | SSID `Stackchan-XXXXXX` + WPA2；LCD 显示 Wi-Fi QR；DNS 劫持 + HTTP 404 兜底打开 captive portal |
 
-## ハードウェア (CoreS3 + Stack-chan ベースの場合)
+## 快速开始
 
-- M5Stack CoreS3 (ESP32-S3、8 MB Quad-SPI PSRAM、16 MB Flash)
-- Stack-chan ベース (PY32 IO Expander @ 0x6F、SCS0009 ×2)
-  - 内部 I²C: AXP2101 (0x34) / Touch (0x38) ほか M5Unified が管理
-  - PY32 Pin 0: サーボ VM 電源 EN (ON 後 200 ms 待ってバス使用)
-  - サーボ バス (SCS0009): UART1, TX GPIO 6 / RX GPIO 7, 1 Mbps, 8 N 1
-    - Yaw  ID = 1, zero_pos = 460
-    - Pitch ID = 2, zero_pos = 620
-  - 1 step ≈ 0.3125° (`deg = (raw - zero) * 5 / 16`)
-  - 頭タッチ センサー Si12T @ 0x68 (なでなで / barge-in、3 ゾーン)
-- 他ボードのピン配置は各 `sdkconfig.defaults.<board>` と
-  `components/board/board.cpp` を参照
-
-## セットアップ
-
-ESP-IDF 5.5 (本リポジトリは 5.5.4 で検証。5.4.2 でもビルド可) を導入済みの環境で:
+环境：已安装 ESP-IDF 5.5。Makefile 默认 `IDF_PATH=$(HOME)/esp-idf/5.5.4`。
 
 ```sh
-git clone <this repo>
-cd stackchan-idf
+git clone https://github.com/sefuzhou770801-hub/groki-bot.git
+cd groki-bot
 git submodule update --init --recursive
-tools/apply-m5-patches.sh                    # M5Unified の 1 行修正を適用
-make set-target BOARD=cores3                 # 初回のみ (BOARD 別に build dir が分かれる)
+tools/apply-m5-patches.sh                    # 给 M5Unified 打一行补丁
+make set-target BOARD=cores3                 # 仅首次（各 BOARD 使用独立 build 目录）
 make build     BOARD=cores3
 make flash     BOARD=cores3 PORT=/dev/ttyACM0
 make monitor   BOARD=cores3 PORT=/dev/ttyACM0
 ```
 
-`BOARD=` を `atoms3r` / `atoms3` / `stopwatch` に置き換えると該当ボード用の
-ビルドが `build-<board>/` 配下に作られます (各 build dir は独立)。
+`BOARD=` 可换成 `atoms3r` / `atoms3` / `stopwatch`，产物在 `build-<board>/`。
 
-`tools/apply-m5-patches.sh` は upstream M5Unified の
-`RTC_PowerHub_Class::setAlarmIRQ` で GCC 14 の `-Werror=maybe-uninitialized`
-に引っかかる `buf` 初期化を当てるだけです。
+`tools/apply-m5-patches.sh` 只修正 upstream M5Unified 里 `RTC_PowerHub_Class::setAlarmIRQ` 的 `buf` 未初始化，避免 GCC 14 `-Werror=maybe-uninitialized`。
 
-OpenAI / Gemini の API キーはビルドに埋め込まず、BLE / Wi-Fi 設定 IF から
-実行時に投入します (NVS に保存)。`sdkconfig.defaults.local` (gitignore 済み) で
-コンパイル時デフォルトを与えることもできます。
+OpenAI / Gemini 的 API 密钥不编进固件，经 BLE / Wi-Fi 设置页在运行时写入 NVS。也可用 gitignore 的 `sdkconfig.defaults.local` 提供编译期默认值。
 
-## 起動シーケンス (CoreS3 標準パス)
+### Web Flasher 与配网入口
 
-1. M5 / Avatar 初期化、起動音 (C5–E5–G5 アルペジオ、設定で OFF 可)
-2. NVS から設定読み込み → BLE 設定サービス起動 (常時 advertising)
-3. SSID があれば Wi-Fi STA 接続を非ブロッキング開始
-   - STA 接続後 → mDNS + HTTP 設定サーバー + SNTP 開始
-4. マイク loopback (2 秒録音 → 再生) で動作確認
-5. サーボ電源 ON → ping (Yaw / Pitch) → 1.5 s 待機
-6. Render Task (顔描画 30 fps, core 1) + Servo Task (20 ms 周期, core 0) を起動。
-   会話が有効なら Conversation Task が Wi-Fi 接続を待って AI 対話を開始
-7. demo_loop 開始 — 会話アイドル時はランダム babble + ランダム ポーズ +
-   なでなで反応、会話中は AI 対話タスクがアバターと音声を制御
-8. 画面右上タップでオンデバイス UI、応答中の画面タップで barge-in、
-   操作タブの「AP モード」で SoftAP プロビジョニング
+浏览器写入已发布固件（Chrome / Edge）：
 
-## リポジトリ構成
+- **写入**：<https://ciniml.github.io/stackchan-idf/>
+- **BLE 设置**：<https://ciniml.github.io/stackchan-idf/settings.html>（Web Bluetooth，仅桌面 Chrome / Edge）
+- **Wi-Fi 设置**：设备连上 Wi-Fi 后访问 `http://stackchan-XXXXXX.local/`（mDNS）
+- **iOS / SoftAP**：进入 AP 模式后，用 iPhone 相机扫 LCD 上的 Wi-Fi QR，captive portal 会打开设置页。CoreS3 / StopWatch 点屏幕右上角打开设备 UI，在操作页选「AP 模式」；AtomS3R / AtomS3 用 BtnA 短按打开状态层、长按循环 `operation_mode`
 
-```
-.
-├── components/
-│   ├── avatar/             顔描画 + アニメーション (Breath / Saccade / Blink、6 表情)
-│   ├── avatar_vm/          Avatar DSL バイトコード VM + ストレージ
-│   ├── board/              CoreS3 / AtomS3R / StopWatch HW 初期化 (ボード自動検出)
-│   ├── scs_servo/          SCS0009 ドライバ + PathGenerator (台形速度)
-│   ├── jtts/               日本語カタコト TTS (babble / speak_katakoto / LT 通知)
-│   ├── conversation/       AI 音声対話クライアント (OpenAI / Gemini / XiaoZhi)
-│   ├── config_service/     BLE GATT 設定サービス + NVS + OTA + X25519/AES-GCM
-│   ├── wifi_config_service/ Wi-Fi HTTP 設定 + 内蔵 Web ページ + release OTA
-│   ├── telegram/           Telegram Bot API (TLS) 通知クライアント (oss)
-│   ├── M5GFX/              submodule (upstream)
-│   ├── M5Unified/          submodule (upstream + 1 patch)
-│   └── tl_expected/        tl::expected backport (submodule)
-├── main/                   app_main, render/servo task, demo_loop, ap_screen,
-│                           captive_portal, device_ui, atom_status, wifi_sta
-├── patches/                upstream-targeted patches
-├── tools/                  apply-m5-patches.sh, monitor_log.py, settings.html,
-│                           avatar_dsl/ (コンパイラ + WASM 連携)
-├── assets/                 .avdsl ソース (default_face, omega_mouth, aokko_face, grok_face)
-├── partitions.csv          OTA 配置 (ota_0 / ota_1 / nvs / storage)
-├── sdkconfig.defaults*     共通 + ボード別 (.cores3 / .atoms3r / .atoms3 / .stopwatch)
-└── Makefile                idf.py の薄いラッパ (BOARD= 切替)
-```
+推送标签 `vX.Y.Z` 后，CI 为四块板构建并挂到 Release，Pages 站点随后更新。本仓库的 Web Flasher 源文件在 `docs/index.html`，BLE 设置页源文件在 `tools/settings.html`。
 
-## ライセンス
+## Grok Bot 联动层
 
-このリポジトリの自前ソース (`components/board`, `components/scs_servo`, `components/avatar`,
-`components/avatar_vm`, `components/jtts`, `components/conversation`,
-`components/config_service`, `components/wifi_config_service`,
-`components/telegram`, `main`, `tools`) は
-**Boost Software License 1.0** ([LICENSE](LICENSE)) の下で配布されます。
+让设备接到 Grok Bot 对话的本机联动层在 [tools/gbot-bridge/](tools/gbot-bridge/README.md)：
 
-Submodule (`components/M5GFX` / `components/M5Unified` / `components/tl_expected/expected`)
-と managed_components (`espressif/esp_audio_codec` / `espressif/esp_websocket_client` /
-`espressif/mdns` / `espressif/esp_jpeg` / `espressif/esp32-camera` 等)
-はそれぞれの upstream ライセンスに従います。
+- HTTP 代理（`gbot_http_proxy.py`）：把 `POST /send` 转成 `gbot --json send`
+- ask 客户端（`stackchan_mcp/ask.py`）
+- 演示脚本 `crab-demo`
 
-### 第三者ソフトウェア・音声データの帰属表示
+**gbot CLI 是外部依赖**，不在本仓库。安装与启动步骤见该目录 README。
 
-HMM 音声合成に使う **hts_engine API** (Modified BSD / 名古屋工業大学・東京工業大学)
-と、同梱・配布する **HMM ボイス "Mei"** (CC BY 3.0 / 名古屋工業大学・MMDAgent
-Project Team) をはじめとする第三者コンポーネントの帰属表示は
-**[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)** にまとめています。
-HTML 版 (Web フラッシャー・設定ページからも参照可):
-<https://ciniml.github.io/stackchan-idf/licenses.html>。
+## 授权
+
+本仓库自有源码（`components/board`、`components/scs_servo`、`components/avatar`、`components/avatar_vm`、`components/jtts`、`components/conversation`、`components/config_service`、`components/wifi_config_service`、`components/telegram`、`main`、`tools`）在 **Boost Software License 1.0**（[LICENSE](LICENSE)）下分发。
+
+Submodule（`components/M5GFX` / `components/M5Unified` / `components/tl_expected/expected`）与 managed_components（`espressif/esp_audio_codec` / `espressif/esp_websocket_client` / `espressif/mdns` / `espressif/esp_jpeg` / `espressif/esp32-camera` 等）遵循各自上游许可证。
+
+**眼环数据非商业条款**：`main/aora_ring_data.hpp` 由 `tools/aora_rings/convert.mjs` 从 [aora-bot](https://github.com/sam70361/aora-bot) `emotion-ball/` 转换生成。上游对表情引擎源码与表情配置数据采用双许可：**非商业使用免费**，商业用途需向作者取得授权。本项目未移植球形角色的视觉形象，只使用眼环轮廓与行为参数。本仓库及发布的固件按非商业条款使用该数据。如需将本固件用于商业用途，请自行向上游作者取得商业授权，或替换该数据文件。详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+HMM 语音合成使用的 **hts_engine API**（Modified BSD / 名古屋工业大学·东京工业大学）与同捆 **HMM 语音 "Mei"**（CC BY 3.0 / 名古屋工业大学·MMDAgent Project Team）等第三方归属，同样汇总在 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。HTML 版：<https://ciniml.github.io/stackchan-idf/licenses.html>。
