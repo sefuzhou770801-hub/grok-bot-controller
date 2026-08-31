@@ -22,9 +22,9 @@
 
 - **表情引擎**：aora 眼环轮廓（每眼 48 点），15 种表情，眨眼 / 环游 / 四权重混合；身体层保留呼吸、开心弹跳、说话压扁、害羞飘心与腮红。
 - **AI 语音对话**：WebSocket 连接 OpenAI Realtime / Google Gemini Live / XiaoZhi。麦克风上行，应答音频驱动口型；半双工 CoreS3 在发话时关闭麦克风，应答中可用屏幕点击或头顶触摸打断（barge-in）。
-- **舵机头部运动**：SCS0009 偏航 + 俯仰，台形速度曲线。
+- **舵机头部运动**：SCS0009 偏航 + 俯仰，梯形速度曲线。
 - **头顶触摸互动**：Si12T 三区电容触摸（前 / 中 / 后）；抚摸切到害羞脸（Affection）。
-- **吹泡字幕**：屏幕底部白底圆角面板显示应答文本，长文跑马灯滚动。
+- **气泡字幕**：屏幕底部白底圆角面板显示应答文本，长文跑马灯滚动。
 - **三路配网**：BLE（NimBLE GATT）、Wi-Fi STA（mDNS HTTP）、SoftAP + captive portal（iOS 友好）。
 - **OTA**：双分区写入，启动校验与回滚。路径包括 BLE 分块、Wi-Fi 本地上传、设备侧从 GitHub Pages 拉取对应板卡固件。
 
@@ -69,12 +69,12 @@ Takao Base 插在同一 `cores3` 固件上：舵机走 Port A（TX GPIO 2 / RX G
 |---|---|
 | 框架 / 语言 | ESP-IDF 5.5（按 5.5.4 验证，5.4.2 也可编译）/ C++20 |
 | 目标芯片 | `esp32s3` |
-| 头像渲染 | M5GFX。有 PSRAM 时全屏缓冲；绘制预算 17 ms（约 60 fps），全屏覆盖层按 33 ms 周期让出 CPU |
+| 表情渲染 | M5GFX。有 PSRAM 时全屏缓冲；单帧绘制预算 17 ms，全屏覆盖层按 33 ms 周期让出 CPU |
 | 表情 | 15 种：Neutral、Happy、Sad、Angry、Doubt、Sleepy、Listening、Thinking、Excited、Curious、Confused、Surprised、Dizzy、Affection、Bored |
 | 眼环合成 | 每眼 48 点轮廓，按 `expression` / `expression_from` / 两层 hold 共四组权重逐点混合；环池轮换约 340 ms；眨眼、单眼 wink、开合度在混合后绕质心纵向压扁 |
 | Avatar DSL | `.avdsl` 源编译为 `.avbc` 字节码，经 BLE / Wi-Fi 热更换。出厂默认脸为 `assets/grok_face.avdsl` |
 | 口型同步 | 16 kHz 单声道，256 点 radix-2 FFT；语音带 log 能量 + spectral flux；EWMA 噪声地板跟随环境 |
-| 舵机运动 | 台形速度曲线 `PathGenerator`，仅在驱动时使能扭矩；限位写入 NVS |
+| 舵机运动 | 梯形速度曲线 `PathGenerator`，仅在驱动时使能扭矩；限位写入 NVS |
 | 音量 | 0..200%，BLE / Wi-Fi / 机身 UI 实时调节 |
 | OTA | 双槽 + 启动回滚。CoreS3 / StopWatch 每槽 4 MiB（`partitions_16mb.csv`）；AtomS3R 每槽 0x350000（`partitions_8mb.csv`）；AtomS3 每槽 3 MiB（`partitions.csv`） |
 | BLE | NimBLE，Just Works 配对；应用层 X25519 + AES-256-GCM；可选口令 |
@@ -106,12 +106,12 @@ OpenAI / Gemini 的 API 密钥不编进固件，经 BLE / Wi-Fi 设置页在运�
 
 浏览器写入已发布固件（Chrome / Edge）：
 
-- **写入**：<https://ciniml.github.io/stackchan-idf/>
-- **BLE 设置**：<https://ciniml.github.io/stackchan-idf/settings.html>（Web Bluetooth，仅桌面 Chrome / Edge）
+- **写入**（上游 ciniml 发布的固件）：<https://ciniml.github.io/stackchan-idf/>
+- **BLE 设置**（上游站点）：<https://ciniml.github.io/stackchan-idf/settings.html>（Web Bluetooth，仅桌面 Chrome / Edge）
 - **Wi-Fi 设置**：设备连上 Wi-Fi 后访问 `http://stackchan-XXXXXX.local/`（mDNS）
 - **iOS / SoftAP**：进入 AP 模式后，用 iPhone 相机扫 LCD 上的 Wi-Fi QR，captive portal 会打开设置页。CoreS3 / StopWatch 点屏幕右上角打开设备 UI，在操作页选「AP 模式」；AtomS3R / AtomS3 用 BtnA 短按打开状态层、长按循环 `operation_mode`
 
-推送标签 `vX.Y.Z` 后，CI 为四块板构建并挂到 Release，Pages 站点随后更新。本仓库的 Web Flasher 源文件在 `docs/index.html`，BLE 设置页源文件在 `tools/settings.html`。
+推送标签 `vX.Y.Z` 后，CI（启用 GitHub Actions 时）为四块板构建并挂到 Release，Pages 站点随后更新。本仓库的 Web Flasher 源文件在 `docs/index.html`，BLE 设置页源文件在 `tools/settings.html`。
 
 ## Grok Bot 联动层
 
