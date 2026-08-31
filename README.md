@@ -83,7 +83,7 @@ Takao Base 插在同一 `cores3` 固件上：舵机走 Port A（TX GPIO 2 / RX G
 
 ## 快速开始
 
-环境：已安装 ESP-IDF 5.5。Makefile 默认 `IDF_PATH=$(HOME)/esp-idf/5.5.4`。
+环境：已安装 ESP-IDF 5.5（Makefile 默认 `IDF_PATH=$(HOME)/esp-idf/5.5.4`）与 Node.js 18+（构建时把表情脚本 `.avdsl` 编译成字节码，编译器随仓库自带）。
 
 ```sh
 git clone https://github.com/sefuzhou770801-hub/groki-bot.git
