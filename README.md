@@ -4,6 +4,7 @@
 
 驱动 Grok Bot 桌面机器人的固件。
 
+<!-- banner 头图占位，由维护者提交 docs/images/banner.png 后替换 -->
 <!-- demo-video
      演示视频后补。发布后把嵌入代码（iframe 或 video）放在本注释块下方。
 -->
@@ -20,6 +21,10 @@
 
 ## 特性
 
+![眼环合成管线：18 个眼环经四组权重混合、纵向压扁后写入屏幕坐标](docs/images/expression-engine.svg)
+
+![AI 语音对话：麦克风经 WebSocket 连接三种服务，应答驱动音频、口型、表情与舵机](docs/images/voice-flow.svg)
+
 - **表情引擎**：aora 眼环轮廓（每眼 48 点），15 种表情，眨眼 / 环游 / 四权重混合；身体层保留呼吸、开心弹跳、说话压扁、害羞飘心与腮红。
 - **AI 语音对话**：WebSocket 连接 OpenAI Realtime / Google Gemini Live / XiaoZhi。麦克风上行，应答音频驱动口型；半双工 CoreS3 在发话时关闭麦克风，应答中可用屏幕点击或头顶触摸打断（barge-in）。
 - **舵机头部运动**：SCS0009 偏航 + 俯仰，梯形速度曲线。
@@ -31,6 +36,8 @@
 ## 硬件规格
 
 ### 标准机：CoreS3 + Stack-chan 底座
+
+![CoreS3 与 Stack-chan 底座的 I²C 设备、屏幕与 UART1 双舵机连接](docs/images/hardware.svg)
 
 | 项目 | 规格 |
 |---|---|
@@ -114,6 +121,8 @@ OpenAI / Gemini 的 API 密钥不编进固件，经 BLE / Wi-Fi 设置页在运�
 推送标签 `vX.Y.Z` 后，CI（启用 GitHub Actions 时）为四块板构建并挂到 Release，Pages 站点随后更新。本仓库的 Web Flasher 源文件在 `docs/index.html`，BLE 设置页源文件在 `tools/settings.html`。
 
 ## Grok Bot 联动层
+
+![Groki Bot 设备经本机 HTTP 代理、gbot CLI 连接 Grok Bot](docs/images/gbot-bridge.svg)
 
 让设备接到 Grok Bot 对话的本机联动层在 [tools/gbot-bridge/](tools/gbot-bridge/README.md)：
 
