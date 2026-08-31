@@ -1,0 +1,499 @@
+#!/usr/bin/env python3
+# SPDX-FileCopyrightText: 2026 Kenta IDA <fuga@fugafuga.org>
+# SPDX-License-Identifier: BSL-1.0
+"""本机 HTTP 包一层 gbot。只绑 127.0.0.1，不读不写 token。
+
+POST /send  {"text":"...","target":"<bot>"}  → gbot --json send
+POST /ask   同上（兼容旧客户端）
+GET  /health  /rtt
+
+首句：send 丢后台，轮询 thread，一出完整短句就回，不等整段生成完。
+带 X-Stackchan-Stream: 1 时继续盯同一 thread 的后续 send-message，
+用已见 id + timestampMs，不重播旧话。超时/条数上限防止挂死。
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from stackchan_mcp.ask import (  # noqa: E402
+    GrokBotClient,
+    extract_bot_replies,
+    gbot_missing_error,
+    resolve_gbot_bin,
+)
+
+HOST = "127.0.0.1"
+PORT = int(os.getenv("STACKCHAN_GBOT_HTTP_PORT", "18770"))
+DEFAULT_BOT = os.getenv("STACKCHAN_ASK_BOT", "总管")
+POLL_S = float(os.getenv("STACKCHAN_GBOT_POLL_S", "0.10"))
+STABLE_S = float(os.getenv("STACKCHAN_GBOT_STABLE_S", "0.35"))
+FOLLOW_HARD_S = float(os.getenv("STACKCHAN_GBOT_FOLLOW_S", "110"))
+FOLLOW_IDLE_S = float(os.getenv("STACKCHAN_GBOT_FOLLOW_IDLE_S", "90"))
+FOLLOW_BUSY_IDLE_S = float(os.getenv("STACKCHAN_GBOT_FOLLOW_BUSY_IDLE_S", "100"))
+FOLLOW_MAX = int(os.getenv("STACKCHAN_GBOT_FOLLOW_MAX", "4"))
+FIRST_TIMEOUT_S = float(os.getenv("STACKCHAN_GBOT_FIRST_TIMEOUT", "30"))
+_BUSY_TOKENS = (
+    "派", "调研", "我去", "去翻", "去查", "去搜", "稍等", "等我",
+    "正在", "交给", "助手", "马上", "先去", "帮你看", "翻一下",
+    "去看看", "去问", "先说",
+)
+
+_SENT_RE = re.compile(r"(?s)(.+?(?:[。！？!?]+|\n+))")
+_TRAIL_OPEN = ("，", ",", "、", "：", ":", "；", ";")
+
+
+def first_short_sentence(text: str) -> str:
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    match = _SENT_RE.match(raw)
+    if match:
+        piece = match.group(1).strip()
+        compact = re.sub(r"\s+", "", piece)
+        if len(compact) >= 2:
+            return piece
+    return ""
+
+
+def ready_utterance(body: str, *, unchanged_s: float) -> str:
+    """完整短句，或短句已停笔（无句号也认）。"""
+    sent = first_short_sentence(body)
+    if sent:
+        return sent
+    compact = re.sub(r"\s+", "", (body or "").strip())
+    if (
+        2 <= len(compact) <= 28
+        and unchanged_s >= STABLE_S
+        and not (body or "").strip().endswith(_TRAIL_OPEN)
+    ):
+        return (body or "").strip()
+    return ""
+
+
+def looks_busy(text: str) -> bool:
+    raw = text or ""
+    return any(token in raw for token in _BUSY_TOKENS)
+
+
+def extract_bot_replies_meta(thread: dict) -> list[tuple[str, str, int]]:
+    """send-message 条目：(id, text, timestampMs)。旧消息靠 id + ts 过滤。"""
+    payload = thread.get("transcript") or thread.get("thread") or thread
+    entries = payload.get("entries") if isinstance(payload, dict) else None
+    if not isinstance(entries, list):
+        return []
+    out: list[tuple[str, str, int]] = []
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("kind") != "send-message":
+            continue
+        eid = str(entry.get("id") or "")
+        message = entry.get("message")
+        text = ""
+        if isinstance(message, dict):
+            text = str(message.get("content") or "")
+        elif isinstance(entry.get("content"), str):
+            text = entry["content"]
+        ts = entry.get("timestampMs") or entry.get("timestamp") or 0
+        try:
+            ts_i = int(ts)
+        except (TypeError, ValueError):
+            ts_i = 0
+        out.append((eid, text.strip(), ts_i))
+    return out
+
+
+def _run_gbot_send(text: str, dest: str) -> tuple[bool, str]:
+    """真正执行 gbot --json send。成功只表示 CLI 发出去了。"""
+    bin_path = resolve_gbot_bin()
+    if not bin_path:
+        return False, gbot_missing_error()
+    try:
+        proc = subprocess.run(
+            [bin_path, "--json", "send", dest, text],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "gbot send timeout"
+    except OSError as exc:
+        return False, f"gbot 执行失败：{exc}"
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or f"gbot exit {proc.returncode}")[:400]
+        return False, err
+    return True, (proc.stdout or "").strip()
+
+
+def _extract_stdout_reply(raw: str) -> str:
+    text = (raw or "").strip()
+    if not text:
+        return ""
+    for line in reversed(text.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict):
+            for key in ("reply", "text", "content", "message"):
+                val = obj.get(key)
+                if isinstance(val, str) and val.strip():
+                    return val.strip()
+    return ""
+
+
+class Handler(BaseHTTPRequestHandler):
+    _client: GrokBotClient | None = None
+
+    @property
+    def client(self) -> GrokBotClient:
+        if Handler._client is None:
+            Handler._client = GrokBotClient()
+        return Handler._client
+
+    def log_message(self, fmt: str, *args) -> None:
+        sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
+
+    def _json(self, code: int, payload: dict) -> None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _begin_ndjson(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self.end_headers()
+
+    def _ndjson(self, payload: dict) -> None:
+        line = json.dumps(payload, ensure_ascii=False).encode("utf-8") + b"\n"
+        self.wfile.write(line)
+        self.wfile.flush()
+
+    def do_GET(self) -> None:  # noqa: N802
+        path = self.path.split("?", 1)[0]
+        if path in {"/health", "/rtt"}:
+            self._json(200, {"ok": True, "service": "gbot-http", "listen": PORT})
+            return
+        if path == "/warmup":
+            t0 = time.monotonic()
+            try:
+                snap = self.client.thread(DEFAULT_BOT)
+                n = len(extract_bot_replies(snap))
+                self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "service": "gbot-http",
+                        "warmup": "thread",
+                        "entries": n,
+                        "elapsed_s": time.monotonic() - t0,
+                    },
+                )
+            except Exception as exc:
+                self._json(502, {"ok": False, "error": str(exc), "warmup": "thread"})
+            return
+        self._json(404, {"ok": False, "error": "not found"})
+
+    def do_POST(self) -> None:  # noqa: N802
+        path = self.path.split("?", 1)[0]
+        if path not in {"/send", "/ask"}:
+            self._json(404, {"ok": False, "error": "not found"})
+            return
+        length = int(self.headers.get("Content-Length") or "0")
+        raw = self.rfile.read(length) if length else b"{}"
+        try:
+            data = json.loads(raw.decode("utf-8") or "{}")
+        except json.JSONDecodeError:
+            self._json(400, {"ok": False, "error": "bad json"})
+            return
+        text = str((data or {}).get("text") or "").strip()
+        bot = str(
+            (data or {}).get("target")
+            or (data or {}).get("bot")
+            or (data or {}).get("target_id")
+            or DEFAULT_BOT
+        ).strip() or DEFAULT_BOT
+        if not text:
+            self._json(400, {"ok": False, "error": "empty text"})
+            return
+        stream = (
+            str(self.headers.get("X-Stackchan-Stream") or "").strip() in {"1", "true", "yes"}
+            or "stream=1" in self.path
+        )
+        t0 = time.monotonic()
+        if resolve_gbot_bin() is None:
+            payload = {"ok": False, "error": gbot_missing_error(), "first_reply_s": 0.0}
+            if stream:
+                try:
+                    self._begin_ndjson()
+                    self._ndjson(payload)
+                except Exception:
+                    self._json(502, payload)
+            else:
+                self._json(502, payload)
+            return
+        try:
+            self._handle_send(text, bot, stream=stream, t0=t0)
+        except Exception as exc:
+            elapsed = time.monotonic() - t0
+            payload = {"ok": False, "error": str(exc), "first_reply_s": elapsed}
+            if stream:
+                try:
+                    self._ndjson(payload)
+                except Exception:
+                    self._json(502, payload)
+            else:
+                self._json(502, payload)
+
+    def _finish(self, payload: dict, *, stream: bool, code: int = 200) -> None:
+        if stream:
+            self._ndjson(payload)
+        else:
+            self._json(code, payload)
+
+    def _handle_send(self, text: str, bot: str, *, stream: bool, t0: float) -> None:
+        snapshot = self.client.thread(bot)
+        meta0 = extract_bot_replies_meta(snapshot)
+        seen = {eid for eid, _body, _ts in meta0}
+        max_seen_ts = max((ts for _e, _b, ts in meta0 if ts), default=0)
+        send_started_ms = int(time.time() * 1000)
+        cutoff_ts = max(max_seen_ts, send_started_ms - 2000)
+        send_state: dict = {}
+
+        def _do_send() -> None:
+            try:
+                sent, stdout = _run_gbot_send(text, bot)
+                send_state["sent"] = sent
+                send_state["stdout"] = stdout
+                if not sent:
+                    try:
+                        self.client.send(bot, text)
+                        send_state["sent"] = True
+                        send_state["via"] = "client.send"
+                    except Exception as exc:
+                        send_state["error"] = str(exc)
+            except Exception as exc:
+                send_state["error"] = str(exc)
+            finally:
+                send_state["done"] = True
+
+        threading.Thread(target=_do_send, name="gbot-send", daemon=True).start()
+
+        if stream:
+            self._begin_ndjson()
+
+        first_deadline = t0 + FIRST_TIMEOUT_S
+        hard_deadline = t0 + FOLLOW_HARD_S
+        last_change: dict[str, float] = {}
+        last_body: dict[str, str] = {}
+        emitted: dict[str, str] = {}
+        first_sent = ""
+        first_s = None
+        more_count = 0
+        busy = False
+        last_emit_at = t0
+        last_piece = ""
+
+        def _emit(payload: dict, *, code: int = 200) -> None:
+            self._finish(payload, stream=stream, code=code)
+
+        while time.monotonic() < hard_deadline:
+            now = time.monotonic()
+            items: list[tuple[str, str]] = []
+            stdout = send_state.get("stdout") or ""
+            immediate = _extract_stdout_reply(stdout) if stdout else ""
+            if immediate and first_s is None:
+                items.append(("stdout", immediate))
+            try:
+                for eid, body, ts in extract_bot_replies_meta(self.client.thread(bot)):
+                    if not body:
+                        continue
+                    if eid in seen:
+                        continue
+                    if ts and ts < cutoff_ts:
+                        continue
+                    items.append((eid, body))
+            except Exception:
+                pass
+
+            progressed = False
+            for eid, body in items:
+                prev = last_body.get(eid)
+                if prev != body:
+                    last_body[eid] = body
+                    last_change[eid] = now
+                piece = ready_utterance(body, unchanged_s=now - last_change.get(eid, now))
+                if not piece:
+                    continue
+                already = emitted.get(eid, "")
+                if first_s is None:
+                    first_s = now - t0
+                    first_sent = piece
+                    last_piece = piece
+                    emitted[eid] = piece
+                    last_emit_at = now
+                    busy = looks_busy(piece)
+                    payload = {
+                        "ok": True,
+                        "reply": piece,
+                        "bot": bot,
+                        "first_reply_s": first_s,
+                        "via": "gbot-send",
+                        "first_sentence": True,
+                        "event": "first",
+                        "entry_id": eid,
+                    }
+                    if stream:
+                        self._ndjson(payload)
+                        progressed = True
+                    else:
+                        self._json(200, payload)
+                        return
+                    continue
+                if not stream:
+                    continue
+                rest = body
+                if already and rest.startswith(already):
+                    rest = rest[len(already):].strip()
+                elif already == piece or already == body:
+                    continue
+                elif already:
+                    rest = piece if piece != already else ""
+                else:
+                    rest = piece
+                if not rest:
+                    continue
+                if eid not in emitted:
+                    more_count += 1
+                emitted[eid] = body if body.startswith(piece) else (already + rest if already else piece)
+                last_piece = rest
+                last_emit_at = now
+                if looks_busy(rest):
+                    busy = True
+                self._ndjson(
+                    {
+                        "ok": True,
+                        "reply": rest,
+                        "bot": bot,
+                        "event": "more",
+                        "first_reply_s": first_s,
+                        "entry_id": eid,
+                    }
+                )
+                progressed = True
+                if more_count >= FOLLOW_MAX:
+                    self._ndjson(
+                        {
+                            "ok": True,
+                            "reply": last_piece,
+                            "bot": bot,
+                            "event": "done",
+                            "first_reply_s": first_s,
+                            "reason": "max",
+                        }
+                    )
+                    return
+
+            if send_state.get("done") and send_state.get("error") and not first_sent:
+                elapsed = time.monotonic() - t0
+                _emit(
+                    {"ok": False, "error": send_state["error"], "first_reply_s": elapsed},
+                    code=502,
+                )
+                return
+
+            if not first_sent:
+                if now >= first_deadline:
+                    break
+                time.sleep(POLL_S)
+                continue
+
+            idle_limit = FOLLOW_BUSY_IDLE_S if busy else FOLLOW_IDLE_S
+            if now - last_emit_at >= idle_limit:
+                if stream:
+                    self._ndjson(
+                        {
+                            "ok": True,
+                            "reply": last_piece or first_sent,
+                            "bot": bot,
+                            "event": "done",
+                            "first_reply_s": first_s,
+                            "reason": "idle",
+                        }
+                    )
+                return
+
+            time.sleep(POLL_S)
+            _ = progressed
+
+        elapsed = time.monotonic() - t0
+        if first_sent and stream:
+            self._ndjson(
+                {
+                    "ok": True,
+                    "reply": last_piece or first_sent,
+                    "bot": bot,
+                    "event": "done",
+                    "first_reply_s": first_s,
+                    "reason": "timeout",
+                }
+            )
+            return
+        if first_sent:
+            return
+        payload = {"ok": False, "error": "gbot timeout", "first_reply_s": elapsed}
+        if stream:
+            self._ndjson(payload)
+        else:
+            self._json(504, payload)
+
+
+def main() -> int:
+    gbot = resolve_gbot_bin()
+    try:
+        if gbot:
+            t0 = time.monotonic()
+            client = GrokBotClient(gbot)
+            snap = client.thread(DEFAULT_BOT)
+            Handler._client = client
+            print(
+                f"gbot-http warmup thread ok entries={len(extract_bot_replies(snap))} "
+                f"s={time.monotonic() - t0:.3f}",
+                flush=True,
+            )
+        else:
+            print(f"gbot-http warmup skipped: {gbot_missing_error()}", flush=True)
+    except Exception as exc:
+        print(f"gbot-http warmup skipped: {exc}", flush=True)
+    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    print(f"gbot-http listening on http://{HOST}:{PORT} gbot={gbot or 'not-found'}", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        return 0
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
