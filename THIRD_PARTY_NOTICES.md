@@ -72,6 +72,24 @@ Open JTalk / pyopenjtalk を使います (firmware には含みません)。
 
 ---
 
+## 表情数据 (眼环轮廓)
+
+### aora-bot / Emotion Ball — 眼环配置数据 (非商业免费，商用需另行授权)
+
+`main/aora_ring_data.hpp` 由 `tools/aora_rings/convert.mjs` 从
+[aora-bot](https://github.com/sam70361/aora-bot) `emotion-ball/` 的
+rings.js / emotions.js 转换生成（上游 commit e3b6148，上游源码不纳入本仓库）。
+
+- 上游条款：表情引擎源码与表情配置数据（眼形参数等）采用双许可，
+  **非商业使用免费**，商业用途需向作者取得授权；球形角色的视觉形象
+  （身体造型、配色）仅供学习且禁止商用，**本项目未移植视觉形象**，
+  只使用眼环轮廓与行为参数。
+- 本仓库及发布的固件按非商业条款使用该数据。如需将本固件用于商业用途，
+  请自行向上游作者取得商业授权，或替换该数据文件。
+- 详见上游 LICENSE / LICENSE-COMMERCIAL.md / NOTICE.md。
+
+---
+
 ## ライブラリ (submodule / managed components)
 
 | コンポーネント | ライセンス | 著作権表示 |
