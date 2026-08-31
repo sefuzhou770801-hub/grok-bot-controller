@@ -1,10 +1,10 @@
 [English](README.en.md)
 
-# stackchan-idf
+# Grok Bot
 
-M5Stack の CoreS3 / AtomS3R / AtomS3 / StopWatch (C152) で動く Stack-chan ファームウェア。
-ESP-IDF 5.5 / C++20。AI 音声対話 (OpenAI / Gemini / XiaoZhi)、BLE / Wi-Fi / SoftAP の 3 経路
-設定、デバイス側 OTA をサポートします。
+Grok Bot 桌面机器人固件。M5Stack の CoreS3 / AtomS3R / AtomS3 / StopWatch (C152) で動く
+Stack-chan ファームウェア。ESP-IDF 5.5 / C++20。AI 音声対話 (OpenAI / Gemini / XiaoZhi)、
+BLE / Wi-Fi / SoftAP の 3 経路設定、デバイス側 OTA をサポートします。
 
 > **本仓库说明**：本仓库基于 [ciniml/stackchan-idf](https://github.com/ciniml/stackchan-idf)
 > (BSL-1.0) 的修改版，主要改动是表情体系换代：眼睛改为
