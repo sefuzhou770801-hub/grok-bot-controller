@@ -52,6 +52,7 @@ gbot bots list
 | `STACKCHAN_GBOT_POLL_S` | `0.10` | thread 轮询间隔（秒） |
 | `STACKCHAN_GBOT_STABLE_S` | `0.35` | 无句号短句判定为停笔的稳定时间（秒） |
 | `STACKCHAN_GBOT_FIRST_TIMEOUT` | `30` | 等待首句的超时（秒） |
+| `STACKCHAN_GBOT_SEND_TIMEOUT_S` | `20` | 单次 `gbot send` 超时（秒）。发送链为直接 send 一次，失败后再由客户端重试两次 |
 | `STACKCHAN_GBOT_FOLLOW_S` | `110` | 流式跟随的硬超时（秒） |
 | `STACKCHAN_GBOT_FOLLOW_IDLE_S` | `90` | 流式空闲结束（秒） |
 | `STACKCHAN_GBOT_FOLLOW_BUSY_IDLE_S` | `100` | 看起来还在干活时的空闲结束（秒） |

@@ -89,6 +89,7 @@ class ProxyServer:
         *,
         body: bytes | None = None,
         headers: dict[str, str] | None = None,
+        timeout: float = 8,
     ) -> tuple[int, dict]:
         req_headers = {"Content-Type": "application/json"}
         if headers:
@@ -100,7 +101,7 @@ class ProxyServer:
             headers=req_headers,
         )
         try:
-            with urllib.request.urlopen(req, timeout=8) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 raw = resp.read()
                 payload = json.loads(raw.decode("utf-8")) if raw else {}
                 return resp.status, payload
@@ -228,6 +229,45 @@ class ConcurrentSameBotSend(unittest.TestCase):
                 self.assertEqual(payload_a.get("error"), "gbot timeout")
 
                 code_b, payload_b = server.request("POST", "/send", body=b'{"text":"beta"}')
+                self.assertEqual(code_b, 200)
+                self.assertEqual(payload_b.get("ok"), True)
+                self.assertEqual(payload_b.get("reply"), "reply-beta。")
+            finally:
+                server.close()
+
+    def test_send_past_scaled_old_join_cap_does_not_leak(self) -> None:
+        # 默认发送链约 60 秒、原 join 上限 25 秒。send 超时从 20 缩到 4 后，
+        # 25 秒上限相当于 5 秒。延迟 3.2 秒小于单次超时（进程能写完回复），
+        # 但远大于首句超时，504 之后 send 仍跑约 2.8 秒；join 必须等到线程结束。
+        send_timeout = 4.0
+        delay = 3.2
+        with tempfile.TemporaryDirectory() as tmp:
+            server = ProxyServer(
+                Path(tmp),
+                extra_env={
+                    "STACKCHAN_GBOT_SEND_TIMEOUT_S": str(send_timeout),
+                    "STACKCHAN_GBOT_FIRST_TIMEOUT": "0.40",
+                    "FAKE_GBOT_SEND_DELAY_S": str(delay),
+                },
+            )
+            try:
+                server.wait_ready()
+                code_a, payload_a = server.request(
+                    "POST",
+                    "/send",
+                    body=b'{"text":"alpha"}',
+                    timeout=15,
+                )
+                self.assertEqual(code_a, 504)
+                self.assertEqual(payload_a.get("ok"), False)
+                self.assertEqual(payload_a.get("error"), "gbot timeout")
+
+                code_b, payload_b = server.request(
+                    "POST",
+                    "/send",
+                    body=b'{"text":"beta"}',
+                    timeout=15,
+                )
                 self.assertEqual(code_b, 200)
                 self.assertEqual(payload_b.get("ok"), True)
                 self.assertEqual(payload_b.get("reply"), "reply-beta。")

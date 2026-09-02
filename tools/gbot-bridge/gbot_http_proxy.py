@@ -33,6 +33,7 @@ from stackchan_mcp.ask import (  # noqa: E402
     extract_bot_replies,
     gbot_missing_error,
     resolve_gbot_bin,
+    send_timeout_s,
 )
 
 HOST = "127.0.0.1"
@@ -45,6 +46,7 @@ FOLLOW_IDLE_S = float(os.getenv("STACKCHAN_GBOT_FOLLOW_IDLE_S", "90"))
 FOLLOW_BUSY_IDLE_S = float(os.getenv("STACKCHAN_GBOT_FOLLOW_BUSY_IDLE_S", "100"))
 FOLLOW_MAX = int(os.getenv("STACKCHAN_GBOT_FOLLOW_MAX", "4"))
 FIRST_TIMEOUT_S = float(os.getenv("STACKCHAN_GBOT_FIRST_TIMEOUT", "30"))
+SEND_TIMEOUT_S = send_timeout_s()
 _BUSY_TOKENS = (
     "派", "调研", "我去", "去翻", "去查", "去搜", "稍等", "等我",
     "正在", "交给", "助手", "马上", "先去", "帮你看", "翻一下",
@@ -136,7 +138,7 @@ def _run_gbot_send(text: str, dest: str) -> tuple[bool, str]:
             [bin_path, "--json", "send", dest, text],
             capture_output=True,
             text=True,
-            timeout=20,
+            timeout=SEND_TIMEOUT_S,
             check=False,
         )
     except subprocess.TimeoutExpired:
@@ -270,7 +272,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             with _lock_for_bot(bot):
-                self._handle_send(text, bot, stream=stream, t0=t0)
+                self._handle_send(text, bot, stream=stream, t0=time.monotonic())
         except Exception as exc:
             elapsed = time.monotonic() - t0
             payload = {"ok": False, "error": str(exc), "first_reply_s": elapsed}
@@ -485,8 +487,8 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._json(504, payload)
         finally:
-            # 超时写出 504 后仍持锁等到 send 结束，迟到回复进入下一请求的快照 seen。
-            send_thread.join(timeout=25)
+            # 发送链自身有超时（直接 send 一次 + 客户端两次重试），这里不加更短的 join 上限。
+            send_thread.join()
 
 
 def main() -> int:
