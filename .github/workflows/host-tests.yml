@@ -126,3 +126,9 @@ jobs:
           node test/smoke.mjs
           node test/round_trip.mjs
           node test/grok_face_compile.mjs
+
+      - name: gbot-bridge HTTP proxy tests
+        working-directory: tools/gbot-bridge
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s test -v

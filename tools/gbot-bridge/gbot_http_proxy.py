@@ -53,6 +53,18 @@ _BUSY_TOKENS = (
 
 _SENT_RE = re.compile(r"(?s)(.+?(?:[。！？!?]+|\n+))")
 _TRAIL_OPEN = ("，", ",", "、", "：", ":", "；", ";")
+_bot_locks_guard = threading.Lock()
+_bot_locks: dict[str, threading.Lock] = {}
+
+
+def _lock_for_bot(bot: str) -> threading.Lock:
+    """同一 bot 的 /send 串行化，避免并发快照把回复配给错误的请求。"""
+    with _bot_locks_guard:
+        lock = _bot_locks.get(bot)
+        if lock is None:
+            lock = threading.Lock()
+            _bot_locks[bot] = lock
+        return lock
 
 
 def first_short_sentence(text: str) -> str:
@@ -159,6 +171,7 @@ def _extract_stdout_reply(raw: str) -> str:
 
 class Handler(BaseHTTPRequestHandler):
     _client: GrokBotClient | None = None
+    _stream_started: bool = False
 
     @property
     def client(self) -> GrokBotClient:
@@ -184,6 +197,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "close")
         self.end_headers()
+        self._stream_started = True
 
     def _ndjson(self, payload: dict) -> None:
         line = json.dumps(payload, ensure_ascii=False).encode("utf-8") + b"\n"
@@ -227,12 +241,12 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             self._json(400, {"ok": False, "error": "bad json"})
             return
-        text = str((data or {}).get("text") or "").strip()
+        if not isinstance(data, dict):
+            self._json(400, {"ok": False, "error": "bad json"})
+            return
+        text = str(data.get("text") or "").strip()
         bot = str(
-            (data or {}).get("target")
-            or (data or {}).get("bot")
-            or (data or {}).get("target_id")
-            or DEFAULT_BOT
+            data.get("target") or data.get("bot") or data.get("target_id") or DEFAULT_BOT
         ).strip() or DEFAULT_BOT
         if not text:
             self._json(400, {"ok": False, "error": "empty text"})
@@ -241,6 +255,7 @@ class Handler(BaseHTTPRequestHandler):
             str(self.headers.get("X-Stackchan-Stream") or "").strip() in {"1", "true", "yes"}
             or "stream=1" in self.path
         )
+        self._stream_started = False
         t0 = time.monotonic()
         if resolve_gbot_bin() is None:
             payload = {"ok": False, "error": gbot_missing_error(), "first_reply_s": 0.0}
@@ -254,15 +269,16 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(502, payload)
             return
         try:
-            self._handle_send(text, bot, stream=stream, t0=t0)
+            with _lock_for_bot(bot):
+                self._handle_send(text, bot, stream=stream, t0=t0)
         except Exception as exc:
             elapsed = time.monotonic() - t0
             payload = {"ok": False, "error": str(exc), "first_reply_s": elapsed}
-            if stream:
+            if stream and self._stream_started:
                 try:
                     self._ndjson(payload)
                 except Exception:
-                    self._json(502, payload)
+                    pass
             else:
                 self._json(502, payload)
 
