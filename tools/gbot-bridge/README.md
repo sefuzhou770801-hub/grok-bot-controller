@@ -15,6 +15,7 @@ SPDX-License-Identifier: BSL-1.0
 | `run_gbot_http.sh` | 启动脚本（强制只绑 `127.0.0.1`） |
 | `stackchan_mcp/ask.py` | ask 客户端（仅 Python 标准库）：解析 gbot、发送、读取 thread |
 | `crab-demo` | 演示脚本：派任务给 grok CLI，设备用思考/兴奋/疑惑脸外化状态 |
+| `groki-face` | 拍摄遥控：按键或预设段切换表情、发送气泡 |
 
 代理不读写 token；gbot CLI 自己使用本机 Grok Bot 应用的登录态。
 
@@ -22,7 +23,8 @@ SPDX-License-Identifier: BSL-1.0
 
 - **Python 3.10+**（标准库即可，无需 pip 包）
 - **gbot CLI**（外部工具，不在本仓库）：[`grok-bot-cli`](https://www.npmjs.com/package/grok-bot-cli)
-- **zsh**（仅 `crab-demo` 需要）
+- **zsh**（`crab-demo`、`groki-face`）
+- **curl / dns-sd**（仅 `groki-face`，macOS 自带）
 - **grok CLI**（仅 `crab-demo` 需要，与 gbot 不是同一个命令）
 - 运行代理的机器上已打开并登录 Grok Bot 应用
 
@@ -59,6 +61,8 @@ gbot bots list
 | `CRAB_HOST` | （必填） | 设备 HTTP 地址，不含协议。仅 `crab-demo` |
 | `CRAB_TOKEN` | （必填） | 设备设置页的 MCP token。仅 `crab-demo` |
 | `CRAB_CWD` | 当前目录 | grok 任务工作目录。仅 `crab-demo` |
+| `GROKI_HOST` | 自动发现 | 设备地址，不含协议（如 `stackchan-XXXXXX.local`）。未设时用 dns-sd 查找第一个 `stackchan-*.local`，超时 3 秒。仅 `groki-face` |
+| `GROKI_TOKEN` | （必填） | 设备设置页的 MCP token。仅 `groki-face` |
 
 ## 启动与健康检查
 
@@ -96,3 +100,64 @@ CRAB_HOST=<设备局域网地址> CRAB_TOKEN=<MCP token> \
 ```
 
 未设置 `CRAB_HOST` / `CRAB_TOKEN`、或 `grok` 不在 PATH 中时，脚本会报错退出。真机表情与气泡效果由维护者在设备上验收。
+
+## 拍摄遥控 groki-face
+
+拍摄时按一个键切换表情，或按预设段自动串演。只依赖 zsh、curl、dns-sd（macOS 自带），不改固件。
+
+设备需已在同一局域网，设置页已配置 MCP token。脚本启动时先 `GET /mcp/state` 做连通检查，成功打印设备 IP 与固件版本。
+
+### 配置
+
+环境变量优先；未设时读 `~/.config/groki/env`（`KEY=VALUE` 每行一条，该文件不入库）：
+
+```
+GROKI_HOST=stackchan-XXXXXX.local
+GROKI_TOKEN=<MCP_TOKEN>
+```
+
+`GROKI_HOST` 可省略：脚本用 `dns-sd -B _stackchan-config._tcp local`（找不到再试 `_http._tcp`）发现第一个 `stackchan-*.local`，超时 3 秒。`GROKI_TOKEN` 必填。
+
+### 用法
+
+```sh
+# 单次切表情
+GROKI_HOST=<设备地址> GROKI_TOKEN=<MCP_TOKEN> \
+  ./tools/gbot-bridge/groki-face happy
+
+# 交互式按键（q 退出）
+GROKI_HOST=<设备地址> GROKI_TOKEN=<MCP_TOKEN> \
+  ./tools/gbot-bridge/groki-face
+
+# 按预设段串演（内置 demo）
+GROKI_HOST=<设备地址> GROKI_TOKEN=<MCP_TOKEN> \
+  ./tools/gbot-bridge/groki-face play demo
+
+# 发送气泡
+GROKI_HOST=<设备地址> GROKI_TOKEN=<MCP_TOKEN> \
+  ./tools/gbot-bridge/groki-face balloon "<文字>" 3000
+```
+
+已写入 `~/.config/groki/env` 时，可直接 `./tools/gbot-bridge/groki-face`。
+
+### 按键表
+
+| 键 | 表情 | 键 | 表情 |
+|---|---|---|---|
+| `1` | neutral | `2` | happy |
+| `3` | sad | `4` | angry |
+| `5` | doubt | `6` | sleepy |
+| `7` | listening | `8` | thinking |
+| `9` | excited | `0` | curious |
+| `c` | confused | `s` | surprised |
+| `d` | dizzy | `a` | affection |
+| `b` | bored | `i` | idle |
+| `q` | 退出 | | |
+
+气泡不走按键，用 `groki-face balloon` 单独发。表情请求非 200 时终端打一行红色提示，交互模式不中断。`curl` 超时 3 秒。
+
+### demo 段
+
+sleepy 3 秒 → surprised 1 秒 → happy 2 秒 → listening 2 秒 → thinking 2 秒 → excited 2 秒 → happy / angry / sad / confused / dizzy 各 0.6 秒 → affection 3 秒 → bored 2 秒 → sleepy（停在此）。
+
+新增段：在脚本内的 `GROKI_SEGMENTS` 表加一项即可。
