@@ -27,13 +27,6 @@ def send_timeout_s() -> float:
     return value if value > 0 else SEND_TIMEOUT_DEFAULT_S
 
 
-def send_chain_timeout_s() -> float:
-    """直接 send 一次失败后再走 GrokBotClient.send 两次重试的理论上限。"""
-    one = send_timeout_s()
-    retries = SEND_RETRY_ATTEMPTS
-    return one + retries * one + (retries - 1) * SEND_RETRY_SLEEP_S
-
-
 class AskError(RuntimeError):
     """问答失败。调用方不得把该错误文本当成 bot 回复。"""
 
