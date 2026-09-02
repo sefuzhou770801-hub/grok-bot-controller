@@ -211,6 +211,29 @@ class ConcurrentSameBotSend(unittest.TestCase):
             finally:
                 server.close()
 
+    def test_late_send_after_timeout_does_not_feed_next_request(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            server = ProxyServer(
+                Path(tmp),
+                extra_env={
+                    "STACKCHAN_GBOT_FIRST_TIMEOUT": "0.40",
+                    "FAKE_GBOT_SEND_DELAY_S": "0.70",
+                },
+            )
+            try:
+                server.wait_ready()
+                code_a, payload_a = server.request("POST", "/send", body=b'{"text":"alpha"}')
+                self.assertEqual(code_a, 504)
+                self.assertEqual(payload_a.get("ok"), False)
+                self.assertEqual(payload_a.get("error"), "gbot timeout")
+
+                code_b, payload_b = server.request("POST", "/send", body=b'{"text":"beta"}')
+                self.assertEqual(code_b, 200)
+                self.assertEqual(payload_b.get("ok"), True)
+                self.assertEqual(payload_b.get("reply"), "reply-beta。")
+            finally:
+                server.close()
+
 
 class HealthAndSendHappyPath(unittest.TestCase):
     def test_health_reports_ok(self) -> None:

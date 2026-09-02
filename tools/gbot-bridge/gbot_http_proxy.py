@@ -314,175 +314,179 @@ class Handler(BaseHTTPRequestHandler):
             finally:
                 send_state["done"] = True
 
-        threading.Thread(target=_do_send, name="gbot-send", daemon=True).start()
+        send_thread = threading.Thread(target=_do_send, name="gbot-send", daemon=True)
+        send_thread.start()
+        try:
+            if stream:
+                self._begin_ndjson()
 
-        if stream:
-            self._begin_ndjson()
+            first_deadline = t0 + FIRST_TIMEOUT_S
+            hard_deadline = t0 + FOLLOW_HARD_S
+            last_change: dict[str, float] = {}
+            last_body: dict[str, str] = {}
+            emitted: dict[str, str] = {}
+            first_sent = ""
+            first_s = None
+            more_count = 0
+            busy = False
+            last_emit_at = t0
+            last_piece = ""
 
-        first_deadline = t0 + FIRST_TIMEOUT_S
-        hard_deadline = t0 + FOLLOW_HARD_S
-        last_change: dict[str, float] = {}
-        last_body: dict[str, str] = {}
-        emitted: dict[str, str] = {}
-        first_sent = ""
-        first_s = None
-        more_count = 0
-        busy = False
-        last_emit_at = t0
-        last_piece = ""
+            def _emit(payload: dict, *, code: int = 200) -> None:
+                self._finish(payload, stream=stream, code=code)
 
-        def _emit(payload: dict, *, code: int = 200) -> None:
-            self._finish(payload, stream=stream, code=code)
+            while time.monotonic() < hard_deadline:
+                now = time.monotonic()
+                items: list[tuple[str, str]] = []
+                stdout = send_state.get("stdout") or ""
+                immediate = _extract_stdout_reply(stdout) if stdout else ""
+                if immediate and first_s is None:
+                    items.append(("stdout", immediate))
+                try:
+                    for eid, body, ts in extract_bot_replies_meta(self.client.thread(bot)):
+                        if not body:
+                            continue
+                        if eid in seen:
+                            continue
+                        if ts and ts < cutoff_ts:
+                            continue
+                        items.append((eid, body))
+                except Exception:
+                    pass
 
-        while time.monotonic() < hard_deadline:
-            now = time.monotonic()
-            items: list[tuple[str, str]] = []
-            stdout = send_state.get("stdout") or ""
-            immediate = _extract_stdout_reply(stdout) if stdout else ""
-            if immediate and first_s is None:
-                items.append(("stdout", immediate))
-            try:
-                for eid, body, ts in extract_bot_replies_meta(self.client.thread(bot)):
-                    if not body:
+                progressed = False
+                for eid, body in items:
+                    prev = last_body.get(eid)
+                    if prev != body:
+                        last_body[eid] = body
+                        last_change[eid] = now
+                    piece = ready_utterance(body, unchanged_s=now - last_change.get(eid, now))
+                    if not piece:
                         continue
-                    if eid in seen:
+                    already = emitted.get(eid, "")
+                    if first_s is None:
+                        first_s = now - t0
+                        first_sent = piece
+                        last_piece = piece
+                        emitted[eid] = piece
+                        last_emit_at = now
+                        busy = looks_busy(piece)
+                        payload = {
+                            "ok": True,
+                            "reply": piece,
+                            "bot": bot,
+                            "first_reply_s": first_s,
+                            "via": "gbot-send",
+                            "first_sentence": True,
+                            "event": "first",
+                            "entry_id": eid,
+                        }
+                        if stream:
+                            self._ndjson(payload)
+                            progressed = True
+                        else:
+                            self._json(200, payload)
+                            return
                         continue
-                    if ts and ts < cutoff_ts:
+                    if not stream:
                         continue
-                    items.append((eid, body))
-            except Exception:
-                pass
-
-            progressed = False
-            for eid, body in items:
-                prev = last_body.get(eid)
-                if prev != body:
-                    last_body[eid] = body
-                    last_change[eid] = now
-                piece = ready_utterance(body, unchanged_s=now - last_change.get(eid, now))
-                if not piece:
-                    continue
-                already = emitted.get(eid, "")
-                if first_s is None:
-                    first_s = now - t0
-                    first_sent = piece
-                    last_piece = piece
-                    emitted[eid] = piece
-                    last_emit_at = now
-                    busy = looks_busy(piece)
-                    payload = {
-                        "ok": True,
-                        "reply": piece,
-                        "bot": bot,
-                        "first_reply_s": first_s,
-                        "via": "gbot-send",
-                        "first_sentence": True,
-                        "event": "first",
-                        "entry_id": eid,
-                    }
-                    if stream:
-                        self._ndjson(payload)
-                        progressed = True
+                    rest = body
+                    if already and rest.startswith(already):
+                        rest = rest[len(already):].strip()
+                    elif already == piece or already == body:
+                        continue
+                    elif already:
+                        rest = piece if piece != already else ""
                     else:
-                        self._json(200, payload)
-                        return
-                    continue
-                if not stream:
-                    continue
-                rest = body
-                if already and rest.startswith(already):
-                    rest = rest[len(already):].strip()
-                elif already == piece or already == body:
-                    continue
-                elif already:
-                    rest = piece if piece != already else ""
-                else:
-                    rest = piece
-                if not rest:
-                    continue
-                if eid not in emitted:
-                    more_count += 1
-                emitted[eid] = body if body.startswith(piece) else (already + rest if already else piece)
-                last_piece = rest
-                last_emit_at = now
-                if looks_busy(rest):
-                    busy = True
-                self._ndjson(
-                    {
-                        "ok": True,
-                        "reply": rest,
-                        "bot": bot,
-                        "event": "more",
-                        "first_reply_s": first_s,
-                        "entry_id": eid,
-                    }
-                )
-                progressed = True
-                if more_count >= FOLLOW_MAX:
+                        rest = piece
+                    if not rest:
+                        continue
+                    if eid not in emitted:
+                        more_count += 1
+                    emitted[eid] = body if body.startswith(piece) else (already + rest if already else piece)
+                    last_piece = rest
+                    last_emit_at = now
+                    if looks_busy(rest):
+                        busy = True
                     self._ndjson(
                         {
                             "ok": True,
-                            "reply": last_piece,
+                            "reply": rest,
                             "bot": bot,
-                            "event": "done",
+                            "event": "more",
                             "first_reply_s": first_s,
-                            "reason": "max",
+                            "entry_id": eid,
                         }
+                    )
+                    progressed = True
+                    if more_count >= FOLLOW_MAX:
+                        self._ndjson(
+                            {
+                                "ok": True,
+                                "reply": last_piece,
+                                "bot": bot,
+                                "event": "done",
+                                "first_reply_s": first_s,
+                                "reason": "max",
+                            }
+                        )
+                        return
+
+                if send_state.get("done") and send_state.get("error") and not first_sent:
+                    elapsed = time.monotonic() - t0
+                    _emit(
+                        {"ok": False, "error": send_state["error"], "first_reply_s": elapsed},
+                        code=502,
                     )
                     return
 
-            if send_state.get("done") and send_state.get("error") and not first_sent:
-                elapsed = time.monotonic() - t0
-                _emit(
-                    {"ok": False, "error": send_state["error"], "first_reply_s": elapsed},
-                    code=502,
+                if not first_sent:
+                    if now >= first_deadline:
+                        break
+                    time.sleep(POLL_S)
+                    continue
+
+                idle_limit = FOLLOW_BUSY_IDLE_S if busy else FOLLOW_IDLE_S
+                if now - last_emit_at >= idle_limit:
+                    if stream:
+                        self._ndjson(
+                            {
+                                "ok": True,
+                                "reply": last_piece or first_sent,
+                                "bot": bot,
+                                "event": "done",
+                                "first_reply_s": first_s,
+                                "reason": "idle",
+                            }
+                        )
+                    return
+
+                time.sleep(POLL_S)
+                _ = progressed
+
+            elapsed = time.monotonic() - t0
+            if first_sent and stream:
+                self._ndjson(
+                    {
+                        "ok": True,
+                        "reply": last_piece or first_sent,
+                        "bot": bot,
+                        "event": "done",
+                        "first_reply_s": first_s,
+                        "reason": "timeout",
+                    }
                 )
                 return
-
-            if not first_sent:
-                if now >= first_deadline:
-                    break
-                time.sleep(POLL_S)
-                continue
-
-            idle_limit = FOLLOW_BUSY_IDLE_S if busy else FOLLOW_IDLE_S
-            if now - last_emit_at >= idle_limit:
-                if stream:
-                    self._ndjson(
-                        {
-                            "ok": True,
-                            "reply": last_piece or first_sent,
-                            "bot": bot,
-                            "event": "done",
-                            "first_reply_s": first_s,
-                            "reason": "idle",
-                        }
-                    )
+            if first_sent:
                 return
-
-            time.sleep(POLL_S)
-            _ = progressed
-
-        elapsed = time.monotonic() - t0
-        if first_sent and stream:
-            self._ndjson(
-                {
-                    "ok": True,
-                    "reply": last_piece or first_sent,
-                    "bot": bot,
-                    "event": "done",
-                    "first_reply_s": first_s,
-                    "reason": "timeout",
-                }
-            )
-            return
-        if first_sent:
-            return
-        payload = {"ok": False, "error": "gbot timeout", "first_reply_s": elapsed}
-        if stream:
-            self._ndjson(payload)
-        else:
-            self._json(504, payload)
+            payload = {"ok": False, "error": "gbot timeout", "first_reply_s": elapsed}
+            if stream:
+                self._ndjson(payload)
+            else:
+                self._json(504, payload)
+        finally:
+            # 超时写出 504 后仍持锁等到 send 结束，迟到回复进入下一请求的快照 seen。
+            send_thread.join(timeout=25)
 
 
 def main() -> int:

@@ -77,24 +77,40 @@ def main(argv: list[str]) -> int:
             print("usage: send BOT TEXT", file=sys.stderr)
             return 2
         text = args[2]
+        configured_delay = float(os.environ.get("FAKE_GBOT_SEND_DELAY_S", "0") or "0")
+        lock_path = _state_path().with_name(_state_path().name + ".sendlock")
+        lock_path.touch(exist_ok=True)
+        with lock_path.open("r+", encoding="utf-8") as lock_fh:
+            fcntl.flock(lock_fh, fcntl.LOCK_EX)
+            try:
+                def take_delay(data: dict[str, Any]) -> float:
+                    leftover = float(data.get("send_delay_s", configured_delay) or 0)
+                    data["send_delay_s"] = 0.0
+                    return leftover
 
-        def append_reply(data: dict[str, Any]) -> None:
-            seq = int(data.get("seq") or 0) + 1
-            data["seq"] = seq
-            entries = list(data.get("entries") or [])
-            entries.append(
-                {
-                    "kind": "send-message",
-                    "id": f"e{seq}",
-                    "message": {"content": f"reply-{text}。"},
-                    "timestampMs": int(time.time() * 1000),
-                }
-            )
-            data["entries"] = entries
+                leftover = _with_state(take_delay)
+                if leftover > 0:
+                    time.sleep(leftover)
 
-        _with_state(append_reply)
-        _dump({"result": {"accepted": True}})
-        return 0
+                def append_reply(data: dict[str, Any]) -> None:
+                    seq = int(data.get("seq") or 0) + 1
+                    data["seq"] = seq
+                    entries = list(data.get("entries") or [])
+                    entries.append(
+                        {
+                            "kind": "send-message",
+                            "id": f"e{seq}",
+                            "message": {"content": f"reply-{text}。"},
+                            "timestampMs": int(time.time() * 1000),
+                        }
+                    )
+                    data["entries"] = entries
+
+                _with_state(append_reply)
+                _dump({"result": {"accepted": True}})
+                return 0
+            finally:
+                fcntl.flock(lock_fh, fcntl.LOCK_UN)
 
     print(f"unknown command: {args[0]}", file=sys.stderr)
     return 2
