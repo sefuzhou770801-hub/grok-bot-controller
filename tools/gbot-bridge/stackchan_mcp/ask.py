@@ -12,6 +12,20 @@ import time
 from pathlib import Path
 from typing import Any
 
+SEND_TIMEOUT_DEFAULT_S = 20.0
+SEND_RETRY_ATTEMPTS = 2
+SEND_RETRY_SLEEP_S = 0.4
+
+
+def send_timeout_s() -> float:
+    """gbot 单次 subprocess 超时。发送链为一次直接 send 加客户端两次重试。"""
+    raw = os.getenv("STACKCHAN_GBOT_SEND_TIMEOUT_S", str(SEND_TIMEOUT_DEFAULT_S))
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return SEND_TIMEOUT_DEFAULT_S
+    return value if value > 0 else SEND_TIMEOUT_DEFAULT_S
+
 
 class AskError(RuntimeError):
     """问答失败。调用方不得把该错误文本当成 bot 回复。"""
@@ -62,15 +76,15 @@ def extract_bot_replies(thread: dict[str, Any]) -> list[tuple[str, str]]:
 
 
 class GrokBotClient:
-    def __init__(self, gbot: str | None = None, timeout_s: float = 20) -> None:
+    def __init__(self, gbot: str | None = None, timeout_s: float | None = None) -> None:
         self.gbot = gbot or resolve_gbot_bin()
-        self.timeout_s = timeout_s
+        self.timeout_s = send_timeout_s() if timeout_s is None else timeout_s
         if not self.gbot:
             raise AskError(gbot_missing_error())
 
     def _run(self, args: list[str]) -> dict[str, Any]:
         last_error = "gbot 失败"
-        for attempt in range(2):
+        for attempt in range(SEND_RETRY_ATTEMPTS):
             try:
                 proc = subprocess.run(
                     [self.gbot, "--json", *args],
@@ -81,8 +95,8 @@ class GrokBotClient:
                 )
             except (OSError, subprocess.TimeoutExpired) as exc:
                 last_error = f"gbot 执行失败：{exc}"
-                if attempt == 0:
-                    time.sleep(0.4)
+                if attempt + 1 < SEND_RETRY_ATTEMPTS:
+                    time.sleep(SEND_RETRY_SLEEP_S)
                     continue
                 raise AskError(last_error) from exc
             if proc.returncode == 0:
@@ -94,8 +108,8 @@ class GrokBotClient:
                     raise AskError("gbot 返回的 JSON 不是对象")
                 return payload
             last_error = (proc.stderr or proc.stdout or "").strip() or f"exit {proc.returncode}"
-            if attempt == 0:
-                time.sleep(0.4)
+            if attempt + 1 < SEND_RETRY_ATTEMPTS:
+                time.sleep(SEND_RETRY_SLEEP_S)
                 continue
         raise AskError(f"gbot 失败：{last_error}")
 

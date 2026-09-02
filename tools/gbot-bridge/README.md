@@ -54,6 +54,7 @@ gbot bots list
 | `STACKCHAN_GBOT_POLL_S` | `0.10` | thread 轮询间隔（秒） |
 | `STACKCHAN_GBOT_STABLE_S` | `0.35` | 无句号短句判定为停笔的稳定时间（秒） |
 | `STACKCHAN_GBOT_FIRST_TIMEOUT` | `30` | 等待首句的超时（秒） |
+| `STACKCHAN_GBOT_SEND_TIMEOUT_S` | `20` | 单次 `gbot send` 超时（秒）。发送链为直接 send 一次，失败后再由客户端重试两次 |
 | `STACKCHAN_GBOT_FOLLOW_S` | `110` | 流式跟随的硬超时（秒） |
 | `STACKCHAN_GBOT_FOLLOW_IDLE_S` | `90` | 流式空闲结束（秒） |
 | `STACKCHAN_GBOT_FOLLOW_BUSY_IDLE_S` | `100` | 看起来还在干活时的空闲结束（秒） |
@@ -89,6 +90,76 @@ curl -sS -X POST "http://127.0.0.1:18770/send" \
 ```
 
 此时 JSON 里 `ok` 为 false，`error` 提示找不到 gbot。装好 gbot 并登录 Grok Bot 之后，同一请求会把文本发给默认 bot，并在首句就绪后返回 `ok: true` 与 `reply`。
+
+### 异常输入与并发
+
+请求体是合法但非对象的 JSON（数字、字符串、数组）时返回 HTTP 400，不断开连接：
+
+```sh
+curl -sS -D - -o - -X POST "http://127.0.0.1:18770/send" \
+  -H "Content-Type: application/json" \
+  -d '42'
+```
+
+应看到 `HTTP/1.0 400` 与 `{"ok": false, "error": "bad json"}`。`"text"` 与 `[1]` 同理。
+
+流式请求在写出 NDJSON 之前失败（例如 `gbot thread` 认证失败）时，返回带状态行的 HTTP 502，而不是无头的一行 JSON。用会失败的假 `gbot` 复现：
+
+```sh
+cat > /tmp/fail-gbot <<'SH'
+#!/bin/sh
+echo "not authenticated" >&2
+exit 1
+SH
+chmod +x /tmp/fail-gbot
+STACKCHAN_GBOT_BIN=/tmp/fail-gbot STACKCHAN_GBOT_HTTP_PORT=18771 \
+  ./tools/gbot-bridge/run_gbot_http.sh
+```
+
+另开终端：
+
+```sh
+curl -sS -D - -o - -X POST "http://127.0.0.1:18771/send" \
+  -H "Content-Type: application/json" \
+  -H "X-Stackchan-Stream: 1" \
+  -d '{"text":"ping"}'
+```
+
+第一行必须是 `HTTP/1.0 502`（或 `HTTP/1.1 502`），正文为 `ok: false` 的 JSON 对象。
+
+同一 bot 的两个 `/send` 并发时按 bot 串行处理，各自拿到自己的回复。用仓库里的假 gbot 做 curl 复现：
+
+```sh
+STATE=/tmp/fake-gbot-state.json
+ROOT="$(pwd)"
+echo '{"entries": [], "seq": 0}' > "$STATE"
+cat > /tmp/ok-gbot <<SH
+#!/bin/sh
+exec python3 "$ROOT/tools/gbot-bridge/test/fake_gbot.py" "\$@"
+SH
+chmod +x /tmp/ok-gbot
+FAKE_GBOT_STATE="$STATE" FAKE_GBOT_THREAD_DELAY_S=0.30 \
+  STACKCHAN_GBOT_BIN=/tmp/ok-gbot STACKCHAN_GBOT_HTTP_PORT=18771 \
+  ./tools/gbot-bridge/run_gbot_http.sh
+```
+
+另开终端，两条请求同时发出：
+
+```sh
+curl -sS -X POST "http://127.0.0.1:18771/send" \
+  -H "Content-Type: application/json" -d '{"text":"alpha"}' &
+curl -sS -X POST "http://127.0.0.1:18771/send" \
+  -H "Content-Type: application/json" -d '{"text":"beta"}' &
+wait
+```
+
+两条响应应分别包含 `"reply": "reply-alpha。"` 与 `"reply": "reply-beta。"`，不能两条都是同一句。
+
+自动化测试（含上述三场景与 `/health`、`/send` 正常路径）：
+
+```sh
+python3 -m unittest discover -s tools/gbot-bridge/test -v
+```
 
 ## crab-demo 用法
 
